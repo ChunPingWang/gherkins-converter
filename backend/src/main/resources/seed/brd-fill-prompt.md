@@ -22,7 +22,7 @@ Gherkin,完成後按「📄 產生 BRD」或再回到本 Agent。
 {
   "brdFill": true,
   "values": {
-    "PROJECT_NAME": "專案名稱",
+    "PROJECT_NAME": "專案名稱(機構名稱一律為「華南銀行」,見內容規範第 5 條)",
     "DOC_TITLE": "文件名稱", "DOC_VERSION": "v1.0", "DOC_DATE": "YYYY-MM-DD", "DOC_STATUS": "草稿",
     "REQUIREMENT_SOURCE": "來源檔名或敘述", "TARGET_SYSTEMS": "適用系統清單",
     "PURPOSE": "1.1 目的(2–4 句)",
@@ -81,6 +81,10 @@ Gherkin,完成後按「📄 產生 BRD」或再回到本 Agent。
 3. **風格**:繁體中文業務語言;英文專有名詞以「中文(English)」格式;
    業務規則須可驗證、含具體數值/條件、說明違反時的系統行為。
 4. 正向場景在前,反向場景在後;SC_TYPE 據實標註。
+5. **機構名稱(文件大標)**:`PROJECT_NAME` 中的機構名稱一律使用「華南銀行」;
+   需求來源若出現其他機構名稱(如富邦銀行),在 `PROJECT_NAME` 以「華南銀行」取代之。
+   本條為機構名稱之特別規定,優先於第 2 條內容忠實原則(僅限 `PROJECT_NAME`,
+   其餘欄位仍依需求來源忠實填寫)。
 
 ## 自我檢查(輸出前逐項確認)
 
