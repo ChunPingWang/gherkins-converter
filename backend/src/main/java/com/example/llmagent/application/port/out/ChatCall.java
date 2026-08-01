@@ -11,11 +11,17 @@ import com.example.llmagent.domain.chat.Message;
  * @param temperature  取樣溫度(可為 {@code null} 用 Provider 預設)
  * @param systemPrompt system prompt(可為 {@code null})
  * @param history      對話歷史(含當前 user 訊息),依時間排序
+ * @param tools        啟用的工具名單(Agent Profile tools 欄位;比對工具名稱子字串,
+ *                     如 {@code mural} 啟用全部 Mural MCP 工具)。空清單 = 不掛工具
  */
 public record ChatCall(
         String model,
         Double temperature,
         String systemPrompt,
-        List<Message> history
+        List<Message> history,
+        List<String> tools
 ) {
+    public ChatCall(String model, Double temperature, String systemPrompt, List<Message> history) {
+        this(model, temperature, systemPrompt, history, List.of());
+    }
 }

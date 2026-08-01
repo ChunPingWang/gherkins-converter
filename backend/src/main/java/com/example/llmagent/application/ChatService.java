@@ -135,9 +135,16 @@ public class ChatService {
             Conversation c = store.findByMessageId(userMessageId)
                     .orElseThrow(() -> new IllegalArgumentException("message not found: " + userMessageId));
             String model = c.defaultModelId();
+            // 工具授權(ADR-003 tool_call):取對話中最近一次指定的 Agent Profile 之 tools 欄位
+            List<String> tools = c.messages().stream()
+                    .filter(m -> m.agentProfileId() != null)
+                    .reduce((a, b) -> b)
+                    .flatMap(m -> agentProfiles.findLatest(m.agentProfileId()))
+                    .map(p -> p.tools())
+                    .orElse(List.of());
             ChatCall call = new ChatCall(
                     model, c.temperature(), c.systemPrompt(),
-                    c.historyUpToAndIncluding(userMessageId));
+                    c.historyUpToAndIncluding(userMessageId), tools);
 
             long start = System.currentTimeMillis();
             AtomicLong ttft = new AtomicLong(-1);
@@ -152,6 +159,11 @@ public class ChatService {
                 List<StreamEvent> evs = new ArrayList<>();
                 if (chunk.usage() != null) {
                     usageRef.set(chunk.usage());
+                }
+                if (chunk.toolCall() != null) {
+                    var tc = chunk.toolCall();
+                    evs.add(StreamEvent.toolCall(tc.name(), parseToolArguments(tc.argumentsJson()), tc.status()));
+                    evs.add(StreamEvent.log("INFO", "tool", "工具 " + tc.name() + " " + tc.status(), ts()));
                 }
                 String delta = chunk.textDelta();
                 if (delta != null && !delta.isEmpty()) {
@@ -244,6 +256,21 @@ public class ChatService {
                 evs.add(StreamEvent.content(s.text()));
             }
             default -> { /* THINKING/CONTENT only from parser */ }
+        }
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper ARGS_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** 工具參數 JSON 轉物件(openapi tool_call.arguments: object);解析失敗降級為原字串。 */
+    private static Object parseToolArguments(String argumentsJson) {
+        if (argumentsJson == null || argumentsJson.isBlank()) {
+            return java.util.Map.of();
+        }
+        try {
+            return ARGS_MAPPER.readValue(argumentsJson, java.util.Map.class);
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return argumentsJson;
         }
     }
 

@@ -148,11 +148,60 @@ System Prompt / API Base URL / Token 可在 UI 修改、立即生效:
 - 預設 in-memory(零依賴可跑);`SPRING_PROFILES_ACTIVE=postgres` 切換
 - 實測:對話中說「最喜歡的數字是 42」→ 重啟後端 → 同一對話追問,模型從 DB 歷史正確答出 42
 
+### 原理 9:MCP 工具呼叫 — Agent 讀取 Mural 看板
+
+Agent 可透過 [MCP](https://modelcontextprotocol.io)(Model Context Protocol)掛載外部工具。
+第一個整合是 [Mural](https://mural.co) 線上白板:在對話中請 BDD 規格 Agent 讀取看板上的
+便利貼/需求牆,直接轉為 Gherkin。
+
+```
+Agent Profile.tools(如 ["mural"])            ← 工具授權白名單(逗號分隔存 DB)
+        │
+ChatService ──ChatCall(tools)──▶ SpringAiChatModelAdapter
+        │                              │ 以名單過濾 MCP 工具,包裝 EmittingToolCallback
+        │                              ▼
+        │                    Spring AI 串流中內部執行工具(mural-mcp,stdio 子程序)
+        ▼                              │
+SSE tool_call 事件(started/finished/error)◀── 工具進度經 Reactor Sink 併入串流
+```
+
+架構要點(維持 Hexagonal,CLAUDE.md #1/#3):
+
+- **工具授權在 Agent Profile**:`tools` 欄位是白名單(工具名子字串比對,`mural` 即啟用全部
+  51 個 Mural 工具);未指定 Profile 或名單為空 → 完全不掛工具
+- **MCP 屬 adapter 層**:`adapter/out/provider/SpringAiChatModelAdapter.selectTools()` 過濾與包裝;
+  `EmittingToolCallback` 於工具執行前後發出進度片段;domain 只認識 `ChatChunk.ToolCall` record
+- **tool_call 事件即時呈現**:ADR-003 第三型事件首次啟用;前端 `App.tsx` 以 🔧 列顯示
+  工具名 + 參數摘要 + 狀態,另落一筆 `source=tool` 的 log 進 audit_logs 供稽核
+- **連線設定可於 UI 修改**:⚙ 設定視窗「Mural MCP」區塊(啟用/Client ID/Client Secret/連線測試)。
+  參數由 `RuntimeSettingsService` 管理(初始值來自環境變數,僅存記憶體、金鑰遮罩,CLAUDE.md #8);
+  `adapter/out/mcp/MuralMcpToolProvider` 以 muralVersion 版本比對延遲重連(關舊建新),
+  自管 stdio client(`npx -y github:anjanpoonacha/mural-mcp`),不依賴 starter 自動設定
+- 驗收:`features/mcp_tool_call.feature`(4 場景)+ `features/mural_settings.feature`(4 場景),
+  皆以 fake/停用情境決定性執行
+
+使用方式:
+
+```bash
+# 1. 前置:mural-mcp 以 bun 執行 TypeScript,需先安裝 bun
+npm install -g bun
+
+# 2. 一次性 OAuth 授權(開瀏覽器;token 存 ~/.mural-mcp/tokens.json,自動更新)
+MURAL_CLIENT_ID=... MURAL_CLIENT_SECRET=... npx -y github:anjanpoonacha/mural-mcp --auth
+
+# 3. 啟動後端時帶 MCP 環境變數(或啟動後於 UI ⚙ 設定「Mural MCP」區塊填入並啟用)
+LLMAGENT_MCP_ENABLED=true MURAL_CLIENT_ID=... MURAL_CLIENT_SECRET=... ./gradlew bootRun
+```
+
+UI 操作:選「BDD 規格 Agent」(tools 已含 `mural`)→ 輸入「列出我的 Mural 工作區/讀取某看板的
+便利貼並轉成 Gherkin」→ 日誌面板即時顯示 🔧 工具呼叫進度,回覆為看板內容轉出的產物。
+
 ---
 
 ## 3. 快速開始
 
-前置:JDK 21、Node 20+、(選用)Podman/Docker。環境變數:`ICA_API_URL`、`ICA_CLAUDE_KEY`。
+前置:JDK 21、Node 20+、(選用)Podman/Docker。環境變數:`ICA_API_URL`、`ICA_CLAUDE_KEY`;
+(選用)Mural MCP:`LLMAGENT_MCP_ENABLED=true`、`MURAL_CLIENT_ID`、`MURAL_CLIENT_SECRET`(見原理 9)。
 
 ```bash
 # 後端(:8080,in-memory 模式)

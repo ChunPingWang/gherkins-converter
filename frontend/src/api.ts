@@ -1,4 +1,4 @@
-import type { DoneInfo, LogLine, ModelOption } from "./types";
+import type { DoneInfo, LogLine, ModelOption, ToolCallEvent } from "./types";
 
 export interface AgentProfile {
   id: string;
@@ -55,11 +55,21 @@ export async function fetchArtifactVersions(
   return res.json();
 }
 
+export interface MuralSettings {
+  enabled: boolean;
+  clientId: string;
+  clientSecretMasked: string;
+  connected: boolean;
+  toolCount: number;
+  error: string | null;
+}
+
 export interface Settings {
   systemPrompt: string;
   baseUrl: string;
   apiKeyMasked: string;
   defaultModelId: string;
+  mural: MuralSettings;
 }
 
 /** 取得執行期設定(token 遮罩)。 */
@@ -74,6 +84,7 @@ export async function updateSettings(patch: {
   systemPrompt?: string;
   baseUrl?: string;
   apiKey?: string;
+  mural?: { enabled?: boolean; clientId?: string; clientSecret?: string };
 }): Promise<Settings> {
   const res = await fetch("/api/settings", {
     method: "PUT",
@@ -81,6 +92,13 @@ export async function updateSettings(patch: {
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`updateSettings failed: ${res.status}`);
+  return res.json();
+}
+
+/** Mural MCP 連線測試:以目前參數啟動/重用連線並回報工具數。 */
+export async function testMural(): Promise<{ ok: boolean; toolCount: number; error: string | null }> {
+  const res = await fetch("/api/settings/mural/test", { method: "POST" });
+  if (!res.ok) throw new Error(`testMural failed: ${res.status}`);
   return res.json();
 }
 
@@ -212,6 +230,7 @@ export async function testProvider(id: string): Promise<ProviderTestResult> {
 export interface StreamHandlers {
   onThinking: (delta: string) => void;
   onContent: (delta: string) => void;
+  onToolCall: (ev: ToolCallEvent) => void;
   onLog: (line: LogLine) => void;
   onDone: (info: DoneInfo) => void;
   onError: (err: unknown) => void;
@@ -222,6 +241,7 @@ export function streamMessage(messageId: string, h: StreamHandlers): EventSource
   const es = new EventSource(`/api/messages/${messageId}/stream`);
   es.addEventListener("thinking", (e) => h.onThinking(JSON.parse((e as MessageEvent).data).delta));
   es.addEventListener("content", (e) => h.onContent(JSON.parse((e as MessageEvent).data).delta));
+  es.addEventListener("tool_call", (e) => h.onToolCall(JSON.parse((e as MessageEvent).data) as ToolCallEvent));
   es.addEventListener("log", (e) => h.onLog(JSON.parse((e as MessageEvent).data) as LogLine));
   es.addEventListener("done", (e) => {
     h.onDone(JSON.parse((e as MessageEvent).data) as DoneInfo);

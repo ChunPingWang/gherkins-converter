@@ -23,6 +23,10 @@ spring:
       # 平台僅用 chat;避免 embedding 自動設定要求額外參數。
       embedding:
         enabled: false
+    # MCP client 改由 MuralMcpToolProvider 自管(參數可於 UI 執行期修改);停用 starter 自動設定。
+    mcp:
+      client:
+        enabled: false
 
 server:
   port: 8080
@@ -43,6 +47,13 @@ management:
 # Provider 設定(ADR-001)。apiKey 一律以環境變數參照,禁止明碼(CLAUDE.md #8)。
 # ICA 為 OpenAI-Compatible Gateway;預設模型使用 ICA 最新 Claude。
 llmagent:
+  # Mural MCP(原理 9):初始值來自環境變數,之後可於 UI ⚙ 設定執行期修改(僅存記憶體,金鑰不落地)。
+  # 前置:npm -g 安裝 bun;一次性 OAuth(--auth)token 在 ~/.mural-mcp/tokens.json。
+  mcp:
+    mural:
+      enabled: ${LLMAGENT_MCP_ENABLED:false}
+      client-id: ${MURAL_CLIENT_ID:}
+      client-secret: ${MURAL_CLIENT_SECRET:}
   # Langfuse Prompt Management(WP4-T5;未設定 = 停用,自動 fallback DB)
   langfuse:
     host: ${LANGFUSE_HOST:}

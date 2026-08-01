@@ -360,6 +360,9 @@ button:disabled { opacity: 0.55; cursor: default; }
   line-height: 1.55;
 }
 .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
+.checkbox-field { flex-direction: row; align-items: center; gap: 0.5rem; }
+.checkbox-field input { width: auto; accent-color: var(--accent, #d33); }
+.checkbox-field span { color: var(--text); font-size: 0.9rem; }
 .field span { font-size: 0.83rem; color: var(--muted); }
 .field input {
   background: var(--panel2);

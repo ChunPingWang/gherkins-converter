@@ -48,6 +48,13 @@ const PREFERRED_DEFAULT = "claude-opus-4-8";
 let uid = 0;
 const nextId = () => `local-${uid++}`;
 
+/** 工具參數摘要:單行、截斷,供日誌列顯示。 */
+function summarizeArgs(args: unknown): string {
+  if (args == null) return "";
+  const s = typeof args === "string" ? args : JSON.stringify(args);
+  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+}
+
 export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -232,7 +239,20 @@ export function App() {
       esRef.current = streamMessage(messageId, {
         onThinking: (d) => patch(assistantId, (m) => ({ ...m, thinking: m.thinking + d })),
         onContent: (d) => patch(assistantId, (m) => ({ ...m, content: m.content + d })),
+        onToolCall: (ev) => {
+          const line: LogLine = {
+            level: ev.status === "error" ? "ERROR" : "INFO",
+            source: `🔧 ${ev.name}`,
+            msg: ev.status === "started"
+              ? `呼叫開始 ${summarizeArgs(ev.arguments)}`
+              : ev.status === "finished" ? "執行完成" : "執行失敗",
+            ts: new Date().toISOString(),
+          };
+          setLogs((prev) => [...prev, line]);
+          patch(assistantId, (m) => ({ ...m, logs: [...m.logs, line] }));
+        },
         onLog: (line) => {
+          if (line.source === "tool") return; // tool_call 事件已以 🔧 呈現,避免重複
           setLogs((prev) => [...prev, line]);
           patch(assistantId, (m) => ({ ...m, logs: [...m.logs, line] }));
         },

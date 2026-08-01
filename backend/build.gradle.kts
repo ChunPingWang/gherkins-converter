@@ -34,6 +34,9 @@ dependencies {
     // AI 抽象:Spring AI OpenAI ChatModel(ADR-001)。ICA 為 OpenAI-Compatible Gateway。
     implementation("org.springframework.ai:spring-ai-starter-model-openai")
 
+    // MCP client(stdio):對話中掛載外部工具(如 Mural 看板讀取),tool_call 事件見 ADR-003。
+    implementation("org.springframework.ai:spring-ai-starter-mcp-client")
+
     // Word (.docx) 產生(WP6-T3,ADR-004):後端以 Apache POI 產生,前端 docx-preview 預覽。
     implementation("org.apache.poi:poi-ooxml:5.3.0")
 

@@ -7,6 +7,13 @@ export interface LogLine {
   ts: string;
 }
 
+/** tool_call SSE 事件(openapi):MCP 工具執行進度。 */
+export interface ToolCallEvent {
+  name: string;
+  arguments: unknown;
+  status: "started" | "finished" | "error" | string;
+}
+
 export interface Usage {
   promptTokens: number;
   completionTokens: number;

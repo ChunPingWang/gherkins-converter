@@ -16,23 +16,60 @@ import org.springframework.stereotype.Service;
 public class RuntimeSettingsService {
 
     private final AtomicLong version = new AtomicLong(1);
+    private final AtomicLong muralVersion = new AtomicLong(1);
 
     private volatile String systemPrompt;
     private volatile String baseUrl;
     private volatile String apiKey;
     private volatile String defaultModelId;
+    private volatile boolean muralEnabled;
+    private volatile String muralClientId;
+    private volatile String muralClientSecret;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public RuntimeSettingsService(ChatProperties chatProps,
                                   @Value("${spring.ai.openai.base-url}") String baseUrl,
-                                  @Value("${spring.ai.openai.api-key}") String apiKey) {
+                                  @Value("${spring.ai.openai.api-key}") String apiKey,
+                                  @Value("${llmagent.mcp.mural.enabled:false}") boolean muralEnabled,
+                                  @Value("${llmagent.mcp.mural.client-id:}") String muralClientId,
+                                  @Value("${llmagent.mcp.mural.client-secret:}") String muralClientSecret) {
         this.systemPrompt = chatProps.defaultSystemPrompt();
         this.defaultModelId = chatProps.defaultModelId();
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
+        this.muralEnabled = muralEnabled;
+        this.muralClientId = muralClientId;
+        this.muralClientSecret = muralClientSecret;
+    }
+
+    /** 測試用簡便建構子(Mural MCP 停用)。 */
+    public RuntimeSettingsService(ChatProperties chatProps, String baseUrl, String apiKey) {
+        this(chatProps, baseUrl, apiKey, false, "", "");
     }
 
     public long version() {
         return version.get();
+    }
+
+    /** Mural MCP 參數版本;變更時 bump,通知工具 adapter 重連(與 LLM 連線版本各自獨立)。 */
+    public long muralVersion() {
+        return muralVersion.get();
+    }
+
+    public boolean muralEnabled() {
+        return muralEnabled;
+    }
+
+    public String muralClientId() {
+        return muralClientId;
+    }
+
+    public String muralClientSecret() {
+        return muralClientSecret;
+    }
+
+    public String muralClientSecretMasked() {
+        return mask(muralClientSecret);
     }
 
     public String systemPrompt() {
@@ -53,8 +90,14 @@ public class RuntimeSettingsService {
 
     /** 遮罩後的 token(僅顯示前 4 碼),供設定畫面呈現。 */
     public String apiKeyMasked() {
-        String k = apiKey;
-        if (k == null || k.length() <= 4) {
+        return mask(apiKey);
+    }
+
+    private static String mask(String k) {
+        if (k == null || k.isBlank()) {
+            return "";
+        }
+        if (k.length() <= 4) {
             return "****";
         }
         return k.substring(0, 4) + "*".repeat(Math.min(k.length() - 4, 20));
@@ -79,6 +122,29 @@ public class RuntimeSettingsService {
         }
         if (connectionChanged) {
             version.incrementAndGet();
+        }
+    }
+
+    /**
+     * 更新 Mural MCP 參數;null(enabled)/blank(id、secret)表示「維持不變」。
+     * 任一項有效變更即 bump muralVersion,工具 adapter 於下次使用時以新參數重連。
+     */
+    public synchronized void updateMural(Boolean enabled, String clientId, String clientSecret) {
+        boolean changed = false;
+        if (enabled != null && enabled != this.muralEnabled) {
+            this.muralEnabled = enabled;
+            changed = true;
+        }
+        if (clientId != null && !clientId.isBlank() && !clientId.strip().equals(this.muralClientId)) {
+            this.muralClientId = clientId.strip();
+            changed = true;
+        }
+        if (clientSecret != null && !clientSecret.isBlank() && !clientSecret.strip().equals(this.muralClientSecret)) {
+            this.muralClientSecret = clientSecret.strip();
+            changed = true;
+        }
+        if (changed) {
+            muralVersion.incrementAndGet();
         }
     }
 }

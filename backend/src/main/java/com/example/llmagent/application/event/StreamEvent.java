@@ -24,6 +24,10 @@ public record StreamEvent(SseEventType type, Object payload) {
         return new StreamEvent(SseEventType.DONE, info);
     }
 
+    public static StreamEvent toolCall(String name, Object arguments, String status) {
+        return new StreamEvent(SseEventType.TOOL_CALL, new ToolCallEvent(name, arguments, status));
+    }
+
     // ---- payload records(對映 openapi.yaml SSE schema)----
 
     public record ThinkingDelta(String delta) {
@@ -33,6 +37,10 @@ public record StreamEvent(SseEventType type, Object payload) {
     }
 
     public record LogLine(String level, String source, String msg, String ts) {
+    }
+
+    /** tool_call 事件(openapi:{name, arguments: object, status: started|finished|error})。 */
+    public record ToolCallEvent(String name, Object arguments, String status) {
     }
 
     public record UsageInfo(int promptTokens, int completionTokens) {

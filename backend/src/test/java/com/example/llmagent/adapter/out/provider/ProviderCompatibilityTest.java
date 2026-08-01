@@ -43,7 +43,7 @@ class ProviderCompatibilityTest {
         RuntimeSettingsService settings = new RuntimeSettingsService(
                 new ChatProperties("test-model", "sys"), wm.baseUrl(), "test-key");
         chatService = new ChatService(
-                new SpringAiChatModelAdapter(settings),
+                new SpringAiChatModelAdapter(settings, noToolCallbacks()),
                 new InMemoryConversationStore(),
                 settings,
                 new AgentProfileService(new InMemoryAgentProfileStore(), null),
@@ -55,6 +55,32 @@ class ProviderCompatibilityTest {
     @AfterEach
     void tearDown() {
         wm.stop();
+    }
+
+    /** 無 MCP client 環境:ToolCallbackProvider bean 不存在。 */
+    private static org.springframework.beans.factory.ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> noToolCallbacks() {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public org.springframework.ai.tool.ToolCallbackProvider getObject() {
+                throw new org.springframework.beans.factory.NoSuchBeanDefinitionException(
+                        org.springframework.ai.tool.ToolCallbackProvider.class);
+            }
+
+            @Override
+            public org.springframework.ai.tool.ToolCallbackProvider getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public org.springframework.ai.tool.ToolCallbackProvider getIfUnique() {
+                return null;
+            }
+
+            @Override
+            public org.springframework.ai.tool.ToolCallbackProvider getObject(Object... args) {
+                return getObject();
+            }
+        };
     }
 
     private void stubStream(String... contentDeltas) {

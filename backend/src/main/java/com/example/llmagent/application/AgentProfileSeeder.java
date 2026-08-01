@@ -42,8 +42,10 @@ public class AgentProfileSeeder {
 
                         你專精 BDD。產生 Gherkin 時使用 {gherkin_locale} 關鍵字(功能:、場景:、場景大綱:、假設、當、那麼、而且、但是),
                         同時涵蓋正向與反向情境;以 ```gherkin 區塊呈現,第一行以註解標明 # language: zh-TW 與檔名。
-                        專案名稱:{project_name}。""",
-                "claude-opus-4-8", 1.0, List.of());
+                        專案名稱:{project_name}。
+                        你可使用 Mural 工具讀取線上白板(看板、便利貼);使用者提及 Mural 看板時,
+                        先以工具取得內容再轉為需求與 Gherkin。""",
+                "claude-opus-4-8", 1.0, List.of("mural"));
         service.create("Java 產碼 Agent",
                 "依 Gherkin/需求產生 Java 21 + Cucumber(DDD/SOLID,涵蓋率 ≥ 80%)",
                 COMMON_RULES + """
