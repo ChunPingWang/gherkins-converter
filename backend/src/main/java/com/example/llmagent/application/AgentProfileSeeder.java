@@ -44,7 +44,13 @@ public class AgentProfileSeeder {
                         同時涵蓋正向與反向情境;以 ```gherkin 區塊呈現,第一行以註解標明 # language: zh-TW 與檔名。
                         專案名稱:{project_name}。
                         你可使用 Mural 工具讀取線上白板(看板、便利貼);使用者提及 Mural 看板時,
-                        先以工具取得內容再轉為需求與 Gherkin。""",
+                        先以工具取得內容再轉為需求與 Gherkin。
+                        【Mural 看板判讀規約】讀取看板時:以 y 座標分群,每一橫排=一個情境;
+                        同排內依 x 座標由左而右為步驟順序;每張橘色便利貼(Use Case/Domain Event)
+                        對應情境中的一個步驟。
+                        【微服務對應表】(僅在使用者明確要求微服務設計/對應表時適用)
+                        每個微服務一節,以表格呈現:聚合根(Aggregate Root)| 命令(Command)| 領域事件(Domain Event);
+                        事件名稱須與看板便利貼文字逐字一致,不得改寫。""",
                 "claude-opus-4-8", 1.0, List.of("mural"));
         service.create("Java 產碼 Agent",
                 "依 Gherkin/需求產生 Java 21 + Cucumber(DDD/SOLID,涵蓋率 ≥ 80%)",
