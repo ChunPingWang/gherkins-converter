@@ -53,7 +53,8 @@ public class EmittingToolCallback implements ToolCallback {
             return result;
         } catch (RuntimeException e) {
             emitter.accept(new ChatChunk.ToolCall(name, toolInput, "error"));
-            throw e;
+            // 錯誤以工具結果回饋模型(可換工具/參數重試),不拋出 —— 拋出會中斷整條 SSE 串流
+            return "工具執行失敗:" + e.getMessage();
         }
     }
 }

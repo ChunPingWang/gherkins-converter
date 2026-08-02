@@ -82,7 +82,10 @@ public class MuralMcpToolProvider implements ToolCallbackProvider {
                                     "MURAL_CLIENT_ID", settings.muralClientId(),
                                     "MURAL_CLIENT_SECRET", settings.muralClientSecret()))
                             .build();
+                    // client 名稱會成為工具名前綴(mural_get_widgets),
+                    // Agent Profile tools 白名單以「mural」子字串比對,前綴不可省
                     McpSyncClient created = McpClient.sync(new StdioClientTransport(params))
+                            .clientInfo(new io.modelcontextprotocol.spec.McpSchema.Implementation("mural", "1.0.0"))
                             .requestTimeout(Duration.ofSeconds(60))
                             .build();
                     created.initialize();
