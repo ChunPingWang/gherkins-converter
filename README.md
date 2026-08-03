@@ -236,9 +236,14 @@ Agent 下拉選「🤖 自動」時,送出前先以一次輕量 LLM 呼叫判斷
 - **單一 SSE 串流**:沿用「POST 建訊息 → GET 串流」模式;步驟邊界以 content 標題
   (`## 🧩 步驟 i/4:…`)與 `source=orchestrator` 的 log 呈現;**中間步驟 done 轉 log**,
   僅最終步驟發 done(前端據以關閉連線);步驟 1 無 Gherkin 產出時 ERROR log + done 優雅中止
+- **步驟級自動重試**:ICA 對長產出(如大量 Java 檔)可能於 10 分鐘級中斷串流(HTTP 200
+  但 stream 中途失敗);Orchestrator 偵測 ChatService 的降級訊號(provider ERROR log)後,
+  以新訊息自動重試該步驟一次(輸入註明前次中斷、請重新完整輸出),重試仍失敗則帶著
+  已收到的部分內容繼續後續步驟,不掛死流程
 - 端點:`POST /api/conversations/{id}/orchestrate` → `GET /api/messages/{id}/orchestrate/stream`;
   實作:`application/OrchestratorService.java`
-- 驗收:`features/orchestrator.feature`(3 場景:四步接力/優雅中止/缺 Agent 拒啟動)
+- 驗收:`features/orchestrator.feature`(5 場景:四步接力/優雅中止/缺 Agent 拒啟動/
+  中斷重試/重試仍失敗續行)
 - 實測:登入需求一句話 → 75 秒跑完四步驟,GHERKIN + 18 個 JAVA 產出物 + 審查意見
 
 ---

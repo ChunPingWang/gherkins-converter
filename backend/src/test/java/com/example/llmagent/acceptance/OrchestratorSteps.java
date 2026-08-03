@@ -45,12 +45,16 @@ public class OrchestratorSteps {
     private static final String JAVA_REPLY =
             "```java\n// src/main/java/App.java\npublic class App {}\n```";
 
+    /** 腳本項:text 為回覆內容;fail=true 模擬串流中途中斷(部分內容後 error)。 */
+    private record Scripted(String text, boolean fail) {
+    }
+
     private AgentProfileService profileService;
     private ChatService chatService;
     private ArtifactService artifactService;
     private InMemoryConversationStore conversationStore;
     private OrchestratorService orchestrator;
-    private final Deque<String> replies = new ArrayDeque<>();
+    private final Deque<Scripted> replies = new ArrayDeque<>();
     private final List<ChatCall> calls = new ArrayList<>();
     private String conversationId;
     private List<StreamEvent> events;
@@ -65,8 +69,11 @@ public class OrchestratorSteps {
         chatService = new ChatService(
                 call -> {
                     calls.add(call);
-                    String reply = replies.isEmpty() ? "" : replies.poll();
-                    return Flux.just(ChatChunk.text(reply), ChatChunk.finalUsage(new Usage(10, 5)));
+                    Scripted s = replies.isEmpty() ? new Scripted("", false) : replies.poll();
+                    Flux<ChatChunk> head = Flux.just(ChatChunk.text(s.text()));
+                    return s.fail()
+                            ? head.concatWith(Flux.error(new RuntimeException("stream cut")))
+                            : head.concatWith(Flux.just(ChatChunk.finalUsage(new Usage(10, 5))));
                 },
                 conversationStore,
                 new RuntimeSettingsService(new ChatProperties("test-model", "sys"), "http://x", "k"),
@@ -97,15 +104,33 @@ public class OrchestratorSteps {
 
     @Given("流水線模型將依序回覆 Gherkin、BRD JSON、Java 程式碼、審查意見")
     public void scriptedReplies() {
-        replies.add(GHERKIN_REPLY);
-        replies.add("```json\n{\"brdFill\":true}\n```");
-        replies.add(JAVA_REPLY);
-        replies.add("審查通過,無重大問題");
+        replies.add(new Scripted(GHERKIN_REPLY, false));
+        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted(JAVA_REPLY, false));
+        replies.add(new Scripted("審查通過,無重大問題", false));
     }
 
     @Given("流水線模型將於步驟 1 回覆純文字 {string}")
     public void plainTextStep1(String reply) {
-        replies.add(reply);
+        replies.add(new Scripted(reply, false));
+    }
+
+    @Given("流水線模型步驟 3 首次將中斷,重試與其他步驟正常回覆")
+    public void step3FailsOnceThenRecovers() {
+        replies.add(new Scripted(GHERKIN_REPLY, false));
+        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted("```java\n// 部分內容後中斷", true));
+        replies.add(new Scripted(JAVA_REPLY, false));
+        replies.add(new Scripted("審查通過,無重大問題", false));
+    }
+
+    @Given("流水線模型步驟 3 連兩次中斷,其他步驟正常回覆")
+    public void step3FailsTwice() {
+        replies.add(new Scripted(GHERKIN_REPLY, false));
+        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted("```java\n// 部分內容後中斷", true));
+        replies.add(new Scripted("```java\n// 又中斷", true));
+        replies.add(new Scripted("審查:程式碼不完整", false));
     }
 
     @When("以目標 {string} 啟動流水線並收完串流")
@@ -152,8 +177,27 @@ public class OrchestratorSteps {
 
     @And("步驟 4 的輸入應包含步驟 3 的 Java 程式碼")
     public void step4InputHasJava() {
-        String input = lastUserContent(calls.get(3));
+        String input = calls.stream()
+                .map(this::lastUserContent)
+                .filter(t -> t.startsWith("請審查"))
+                .reduce((a, b) -> b)
+                .orElse("");
         assertTrue(input.contains("public class App"), "步驟 4 輸入:" + input);
+    }
+
+    @Then("串流應含 source 為 {string} 的 WARN 重試 log")
+    public void hasRetryWarnLog(String source) {
+        boolean found = events.stream()
+                .filter(e -> e.type() == SseEventType.LOG)
+                .map(e -> (StreamEvent.LogLine) e.payload())
+                .anyMatch(l -> source.equals(l.source()) && "WARN".equals(l.level())
+                        && l.msg().contains("重試"));
+        assertTrue(found, "缺少重試 WARN log");
+    }
+
+    @Then("Provider 應被呼叫 {int} 次")
+    public void providerCallCount(int expected) {
+        assertEquals(expected, calls.size());
     }
 
     @And("串流應恰有 1 個 done 事件且位於最後")

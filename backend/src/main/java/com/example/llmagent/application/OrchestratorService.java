@@ -14,6 +14,7 @@ import com.example.llmagent.domain.agent.AgentProfile;
 import com.example.llmagent.domain.artifact.Artifact;
 import com.example.llmagent.domain.artifact.ArtifactExtractor;
 import com.example.llmagent.domain.chat.Conversation;
+import com.example.llmagent.domain.chat.Message;
 import com.example.llmagent.domain.sse.SseEventType;
 
 import reactor.core.publisher.Flux;
@@ -27,6 +28,11 @@ import reactor.core.publisher.Flux;
  * <p>全流程串流為單一 SSE 連線:步驟邊界以 content 標題與 orchestrator log 呈現;
  * 中間步驟的 done 事件轉為 log(僅最終步驟發出 done,前端據以關閉連線)。
  * 步驟 1 未產出 Gherkin 時優雅中止(ERROR log + done),不留半掛串流。
+ *
+ * <p><b>步驟級重試</b>:ChatService 將 provider 串流失敗降級為 ERROR log + done
+ * (實測 ICA 對長產出可能於 10 分鐘級中斷);Orchestrator 偵測該訊號後自動以
+ * 新訊息重試該步驟一次(輸入註明前次中斷,請模型重新完整輸出),重試仍失敗
+ * 則帶著已收到的部分內容繼續後續步驟,不掛死流程。
  */
 @Service
 public class OrchestratorService {
@@ -38,6 +44,8 @@ public class OrchestratorService {
     /** 步驟 2-4 的 prompt 無範本變數;帶預設值僅為 renderPrompt 的防禦。 */
     private static final Map<String, String> DEFAULT_VARS =
             Map.of("gherkin_locale", "zh-TW", "project_name", "llm-webapp");
+
+    private static final String RETRY_PREFIX = "(前次回應串流中斷,請忽略前次輸出,重新完整輸出)\n\n";
 
     private final ChatService chatService;
     private final AgentProfileService profiles;
@@ -71,10 +79,13 @@ public class OrchestratorService {
             Conversation c = store.findByMessageId(firstMessageId)
                     .orElseThrow(() -> new IllegalArgumentException("message not found: " + firstMessageId));
             String convId = c.id();
+            String firstInput = c.messages().stream()
+                    .filter(m -> m.id().equals(firstMessageId))
+                    .map(Message::content).findFirst().orElse("");
             Map<Integer, StringBuilder> outputs = new ConcurrentHashMap<>();
             AtomicBoolean aborted = new AtomicBoolean(false);
 
-            Flux<StreamEvent> s1 = runStep(1, firstMessageId, outputs, false);
+            Flux<StreamEvent> s1 = runStepWithRetry(convId, 1, firstInput, firstMessageId, outputs, false);
 
             Flux<StreamEvent> s2 = Flux.defer(() -> {
                 if (aborted.get()) {
@@ -84,9 +95,9 @@ public class OrchestratorService {
                 if (gherkin == null) {
                     return abort(aborted, "步驟 1 未產出 Gherkin 產出物,流程中止");
                 }
-                return nextStep(convId, 2,
+                return runStepWithRetry(convId, 2,
                         "請依據以下 Gherkin 產出 BRD 套版資料:\n```gherkin\n" + gherkin + "\n```",
-                        outputs, false);
+                        null, outputs, false);
             });
 
             Flux<StreamEvent> s3 = Flux.defer(() -> {
@@ -94,57 +105,98 @@ public class OrchestratorService {
                     return Flux.empty();
                 }
                 String gherkin = extractGherkin(outputs.get(1).toString());
-                return nextStep(convId, 3,
+                return runStepWithRetry(convId, 3,
                         "請依據以下 Gherkin 產生完整 Java 21 + Cucumber 程式碼:\n```gherkin\n"
                                 + gherkin + "\n```",
-                        outputs, false);
+                        null, outputs, false);
             });
 
             Flux<StreamEvent> s4 = Flux.defer(() -> {
                 if (aborted.get()) {
                     return Flux.empty();
                 }
-                return nextStep(convId, 4,
+                return runStepWithRetry(convId, 4,
                         "請審查以下產出的程式碼(正確性、DDD/SOLID、測試涵蓋):\n\n"
                                 + outputs.get(3).toString(),
-                        outputs, true);
+                        null, outputs, true);
             });
 
             return Flux.concat(s1, s2, s3, s4);
         });
     }
 
-    private Flux<StreamEvent> runStep(int idx, String messageId,
-                                      Map<Integer, StringBuilder> outputs, boolean last) {
+    /**
+     * 執行單一步驟,串流中斷(provider ERROR 降級訊號)時以新訊息自動重試一次。
+     *
+     * @param preCreatedMessageId 步驟 1 由 start() 預先建立的訊息;其餘步驟為 null(此處建立)
+     */
+    private Flux<StreamEvent> runStepWithRetry(String convId, int idx, String input,
+                                               String preCreatedMessageId,
+                                               Map<Integer, StringBuilder> outputs, boolean last) {
+        AtomicBoolean failed = new AtomicBoolean(false);
+        Flux<StreamEvent> first = Flux.defer(() -> {
+            String messageId = preCreatedMessageId != null
+                    ? preCreatedMessageId : newStepMessage(convId, idx, input);
+            return attempt(idx, messageId, outputs, last, failed, true);
+        });
+        Flux<StreamEvent> retry = Flux.defer(() -> {
+            if (!failed.get()) {
+                return Flux.empty();
+            }
+            String agent = STEP_AGENTS.get(idx - 1);
+            return Flux.just(
+                            StreamEvent.log("WARN", "orchestrator",
+                                    "步驟 " + idx + " 串流中斷,自動重試一次:" + agent, ts()),
+                            StreamEvent.content("\n\n> 🔁 步驟 " + idx + " 串流中斷,自動重試…\n\n"))
+                    .concatWith(Flux.defer(() -> attempt(idx,
+                            newStepMessage(convId, idx, RETRY_PREFIX + input),
+                            outputs, last, failed, false)));
+        });
+        return first.concatWith(retry);
+    }
+
+    /** 單次嘗試:偵測 provider ERROR 降級訊號標記失敗;首次嘗試失敗時抑制 done 供重試接手。 */
+    private Flux<StreamEvent> attempt(int idx, String messageId, Map<Integer, StringBuilder> outputs,
+                                      boolean last, AtomicBoolean failed, boolean firstAttempt) {
         StringBuilder buf = outputs.computeIfAbsent(idx, k -> new StringBuilder());
+        buf.setLength(0);
+        failed.set(false);
         String agent = STEP_AGENTS.get(idx - 1);
-        Flux<StreamEvent> header = Flux.just(
-                StreamEvent.content("\n\n---\n\n## 🧩 步驟 " + idx + "/" + STEP_AGENTS.size()
-                        + ":" + agent + "\n\n"),
-                StreamEvent.log("INFO", "orchestrator",
-                        "步驟 " + idx + "/" + STEP_AGENTS.size() + " 開始:" + agent, ts()));
+        Flux<StreamEvent> header = firstAttempt
+                ? Flux.just(
+                        StreamEvent.content("\n\n---\n\n## 🧩 步驟 " + idx + "/" + STEP_AGENTS.size()
+                                + ":" + agent + "\n\n"),
+                        StreamEvent.log("INFO", "orchestrator",
+                                "步驟 " + idx + "/" + STEP_AGENTS.size() + " 開始:" + agent, ts()))
+                : Flux.empty();
         Flux<StreamEvent> body = chatService.streamAssistant(messageId)
                 .doOnNext(ev -> {
                     if (ev.type() == SseEventType.CONTENT) {
                         buf.append(((StreamEvent.ContentDelta) ev.payload()).delta());
+                    } else if (ev.type() == SseEventType.LOG
+                            && ev.payload() instanceof StreamEvent.LogLine l
+                            && "ERROR".equals(l.level()) && "provider".equals(l.source())) {
+                        failed.set(true);
                     }
                 })
                 .concatMap(ev -> {
-                    if (ev.type() == SseEventType.DONE && !last) {
-                        // 中間步驟的 done 轉 log,避免前端提早關閉 SSE;僅最終步驟發 done
+                    if (ev.type() == SseEventType.DONE) {
+                        // 最終步驟且本次未失敗(或已是重試)才放行 done;其餘轉 log
+                        boolean passThrough = last && !(failed.get() && firstAttempt);
+                        if (passThrough) {
+                            return Flux.just(ev);
+                        }
                         return Flux.just(StreamEvent.log("INFO", "orchestrator",
-                                "步驟 " + idx + " 完成:" + agent, ts()));
+                                "步驟 " + idx + (failed.get() ? " 中斷:" : " 完成:") + agent, ts()));
                     }
                     return Flux.just(ev);
                 });
         return header.concatWith(body);
     }
 
-    private Flux<StreamEvent> nextStep(String convId, int idx, String input,
-                                       Map<Integer, StringBuilder> outputs, boolean last) {
+    private String newStepMessage(String convId, int idx, String input) {
         AgentProfile p = requireProfile(STEP_AGENTS.get(idx - 1));
-        String messageId = chatService.addUserMessage(convId, input, null, p.id(), DEFAULT_VARS);
-        return runStep(idx, messageId, outputs, last);
+        return chatService.addUserMessage(convId, input, null, p.id(), DEFAULT_VARS);
     }
 
     private Flux<StreamEvent> abort(AtomicBoolean aborted, String reason) {
