@@ -73,6 +73,113 @@ Step definitions 用英文 annotation(`@Given/@When/@Then`)搭配繁中步驟文
         IBM ICA Gateway ─ claude-opus-4-8   PostgreSQL(Flyway)
 ```
 
+### C4 Model — Level 1:System Context
+
+```mermaid
+C4Context
+    title SDLC Agent 平台 — System Context
+    Person(user, "使用者", "BA / 開發者:輸入需求、檢視各階段產出")
+    System(platform, "SDLC Agent 平台", "自動路由 + 五階段流水線:需求 → Gherkin → BRD → DDD 計畫 → 程式碼 → 審查")
+    System_Ext(ica, "IBM ICA Gateway", "OpenAI-Compatible;承載 Claude 模型")
+    System_Ext(mural, "Mural", "線上白板(Event Storming 便利貼);OAuth + MCP 工具")
+    System_Ext(github, "GitHub", "產出結果存放:Issue / feature 分支 / PR")
+    Rel(user, platform, "對話、檢視階段 Tab、發布", "HTTPS / SSE")
+    Rel(platform, ica, "LLM 對話與工具呼叫", "OpenAI API")
+    Rel(platform, mural, "讀取看板便利貼", "MCP(stdio)→ Mural API")
+    Rel(platform, github, "開 Issue / 提交分支 / 開 PR", "REST v3")
+```
+
+### C4 Model — Level 2:Container
+
+```mermaid
+C4Container
+    title SDLC Agent 平台 — Container
+    Person(user, "使用者")
+    Container_Boundary(plat, "SDLC Agent 平台") {
+        Container(spa, "Frontend SPA", "React 18 + Vite", "聊天面板 + SDLC 階段 Tab(規格/BRD/計畫/實作/分析/日誌)")
+        Container(api, "Backend", "Spring Boot 3.3 WebFlux(Hexagonal)", "Router / Orchestrator / ChatService / PublishService;SSE 五型事件")
+        Container(mcp, "mural-mcp 子程序", "bun + TypeScript(stdio)", "51+ Mural 工具;由後端以 MCP client 管理")
+        ContainerDb(db, "PostgreSQL", "Flyway 六表", "對話/訊息/產出物/Agent Prompt 版本/稽核")
+        ContainerDb(minio, "MinIO", "S3 API", "附件與 Word 範本")
+    }
+    System_Ext(ica, "IBM ICA Gateway", "Claude 模型")
+    System_Ext(muralApi, "Mural API")
+    System_Ext(github, "GitHub API")
+    Rel(user, spa, "使用", "HTTPS")
+    Rel(spa, api, "REST + SSE", "/api/*")
+    Rel(api, ica, "ChatModel 串流(Spring AI)", "OpenAI API")
+    Rel(api, mcp, "工具呼叫", "MCP stdio")
+    Rel(mcp, muralApi, "讀取看板", "OAuth REST")
+    Rel(api, db, "JDBC")
+    Rel(api, minio, "S3")
+    Rel(api, github, "Issue / Contents / PR", "REST v3")
+```
+
+### Agent 互動 — 單步自動路由(層次一)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 使用者
+    participant FE as Frontend
+    participant RT as AgentRouterService
+    participant CS as ChatService
+    participant AG as 被選中的 Agent<br/>(Profile prompt)
+    participant MCP as Mural MCP 工具
+    U->>FE: 輸入訊息(Agent = 🤖 自動)
+    FE->>RT: POST /api/route
+    RT->>RT: 輕量 LLM 呼叫:候選 Agent 清單 vs 訊息意圖
+    RT-->>FE: 決策物件 {target, agentProfileId, confidence, reason}
+    alt 信心 ≥ 0.6
+        FE->>CS: POST message(帶 agentProfileId)+ GET stream
+        CS->>AG: 以該 Agent 的 system prompt 呼叫模型
+        opt Agent 有 mural 工具授權
+            AG->>MCP: mural_get_widgets(...)
+            MCP-->>AG: 便利貼內容(SSE 發 tool_call 事件)
+        end
+        AG-->>FE: thinking / content / log / done(SSE)
+    else 低信心或無法判斷
+        FE->>U: 確認視窗(採建議 Agent 或全域預設)
+    end
+```
+
+### Agent 互動 — 五階段流水線(層次二,部分對齊 Spec-Kit)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 使用者
+    participant OR as Orchestrator
+    participant A1 as BDD 規格 Agent
+    participant A2 as BRD 業務文件 Agent
+    participant A3 as DDD 設計 Agent
+    participant A4 as Java 產碼 Agent
+    participant A5 as Code Review Agent
+    participant GH as GitHub
+    U->>OR: 「做完全流程」(路由決策 PIPELINE)
+    OR->>A1: ① Specify:需求(可含 Mural 看板)
+    Note over A1: Clarify:業務規則無法判斷時<br/>反問並優雅中止
+    A1-->>OR: Gherkin(正反向場景)
+    OR->>A2: ② Specify:Gherkin → BRD
+    A2-->>OR: brdFill JSON(Word 套版)
+    OR->>A3: ③ Plan:Gherkin → DDD 設計
+    A3-->>OR: Bounded Context/聚合根/Command/Event<br/>+ CONTEXTS 機器可讀標記
+    loop 每個 bounded context 一批(≤6)
+        OR->>A4: ④ Implement:Gherkin + Plan,限定單一 context
+        A4-->>OR: 該 context 的 Java + Cucumber
+        Note over OR,A4: 串流中斷 → 自動以新訊息重試一次
+    end
+    OR->>A5: ⑤ Analyze:Gherkin + 全部程式碼
+    A5-->>OR: 審查(嚴重度排序)+ 場景↔實作↔測試追溯表
+    OR-->>U: 單一 SSE 串流全程(階段 Tab 自動切換)
+    opt 🚀 發布 Git
+        U->>GH: 場景開 Issue → feature 分支 57 檔 → PR(Closes #n)
+    end
+```
+
+> 每步驟皆為同一對話內的獨立訊息(記錄 agentProfileId + version),Agent 之間**不直接對話**,
+> 由 Orchestrator 以「前一步驟產出 → 下一步驟輸入」的方式傳遞,追溯鏈與稽核完整保留。
+
 ### 原理 1:Hexagonal Architecture(六角/埠與轉接器)
 
 `domain` 與 `application` 不依賴任何外部技術;LLM Provider、資料庫、Word 轉檔都是可替換的 adapter。
