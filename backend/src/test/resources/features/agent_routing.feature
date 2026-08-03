@@ -33,6 +33,11 @@
     當 對訊息 "幫我把需求轉成 Gherkin" 進行路由
     那麼 路由決策 target 應為 "NONE"
 
+  場景: 使用者要求全流程時路由至 PIPELINE
+    假設 路由模型將回傳 pipeline 決策且信心為 0.95
+    當 對訊息 "從這個 Mural 看板一條龍做完 Gherkin、BRD、Java 與審查" 進行路由
+    那麼 路由決策 target 應為 "PIPELINE"
+
   場景: 路由呼叫不掛載任何工具
     假設 路由模型將回傳 none 決策
     當 對訊息 "讀取 Mural 看板" 進行路由

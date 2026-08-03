@@ -86,6 +86,9 @@ public class AgentRouterService {
                 {"agentProfileId":"<候選 id>","confidence":<0.0~1.0>,"reason":"<簡短繁中理由>"}
                 判斷依據是「這則訊息要求的產物」;無法明確判斷時輸出
                 {"agentProfileId":"none","confidence":0,"reason":"<原因>"}。
+                特殊選項:若使用者要求「完整/全流程」——一次從需求(或 Mural 看板)產出
+                Gherkin、業務文件(BRD)、Java 程式碼並審查(如「跑完整個流程」「一條龍做完」),
+                輸出 {"agentProfileId":"pipeline","confidence":<0.0~1.0>,"reason":"<理由>"}。
                 候選 Agent:
                 """ + list;
     }
@@ -105,15 +108,18 @@ public class AgentRouterService {
             if ("none".equalsIgnoreCase(id)) {
                 return RouteDecision.none(reason.isBlank() ? "模型無法判斷" : reason);
             }
+            double conf = json.get("confidence") instanceof Number n0
+                    ? Math.clamp(n0.doubleValue(), 0.0, 1.0) : 0.0;
+            if ("pipeline".equalsIgnoreCase(id)) {
+                return new RouteDecision(Target.PIPELINE, null, "SDLC 全流程", conf, reason);
+            }
             AgentProfile matched = candidates.stream()
                     .filter(p -> p.id().equals(id) || p.name().equals(id))
                     .findFirst().orElse(null);
             if (matched == null) {
                 return RouteDecision.none("模型回傳未知 Agent:" + id);
             }
-            double confidence = json.get("confidence") instanceof Number n
-                    ? Math.clamp(n.doubleValue(), 0.0, 1.0) : 0.0;
-            return new RouteDecision(Target.AGENT, matched.id(), matched.name(), confidence, reason);
+            return new RouteDecision(Target.AGENT, matched.id(), matched.name(), conf, reason);
         } catch (com.fasterxml.jackson.core.JacksonException e) {
             return RouteDecision.none("模型回覆 JSON 解析失敗");
         }

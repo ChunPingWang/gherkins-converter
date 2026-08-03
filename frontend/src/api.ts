@@ -92,6 +92,21 @@ export async function routeAgent(content: string): Promise<RouteDecision> {
   return res.json();
 }
 
+/** 層次二:啟動 SDLC 流水線(BDD→BRD→Java→Review),回傳步驟 1 messageId 與步驟清單。 */
+export async function orchestrate(
+  conversationId: string,
+  content: string,
+  promptVariables?: Record<string, string>,
+): Promise<{ messageId: string; steps: string[] }> {
+  const res = await fetch(`/api/conversations/${conversationId}/orchestrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, promptVariables }),
+  });
+  if (!res.ok) throw new Error(`orchestrate failed: ${res.status}`);
+  return res.json();
+}
+
 /** 取得執行期設定(token 遮罩)。 */
 export async function fetchSettings(): Promise<Settings> {
   const res = await fetch("/api/settings");
@@ -256,9 +271,9 @@ export interface StreamHandlers {
   onError: (err: unknown) => void;
 }
 
-/** 開啟 SSE 串流。回傳 EventSource,呼叫端可於卸載時 close()。 */
-export function streamMessage(messageId: string, h: StreamHandlers): EventSource {
-  const es = new EventSource(`/api/messages/${messageId}/stream`);
+/** 開啟 SSE 串流。回傳 EventSource,呼叫端可於卸載時 close()。streamUrl 供流水線串流覆寫。 */
+export function streamMessage(messageId: string, h: StreamHandlers, streamUrl?: string): EventSource {
+  const es = new EventSource(streamUrl ?? `/api/messages/${messageId}/stream`);
   es.addEventListener("thinking", (e) => h.onThinking(JSON.parse((e as MessageEvent).data).delta));
   es.addEventListener("content", (e) => h.onContent(JSON.parse((e as MessageEvent).data).delta));
   es.addEventListener("tool_call", (e) => h.onToolCall(JSON.parse((e as MessageEvent).data) as ToolCallEvent));

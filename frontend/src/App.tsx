@@ -4,6 +4,7 @@ import {
   deleteConversation,
   fetchAgentProfiles,
   fetchModels,
+  orchestrate,
   postMessage,
   routeAgent,
   streamMessage,
@@ -207,6 +208,7 @@ export function App() {
     // 自動路由(層次一):送出前先取得決策物件;低信心或無法判斷退回人工確認(沿用攔截視窗)
     let effProfile = profileOverride ?? profileId;
     let routeLog: LogLine | null = null;
+    let pipeline = false; // 層次二:PIPELINE 決策 → SDLC 流水線串流
     if (isAuto) {
       if (skipIntercept) {
         effProfile = ""; // 確認視窗選「仍用目前」:自動模式下以全域預設送出
@@ -222,7 +224,15 @@ export function App() {
         const routed = decision && decision.target === "AGENT" && decision.agentProfileId
           ? profiles.find((p) => p.id === decision.agentProfileId) ?? null
           : null;
-        if (routed && decision && decision.confidence >= ROUTE_CONFIDENCE_THRESHOLD) {
+        if (decision && decision.target === "PIPELINE") {
+          pipeline = true;
+          effProfile = ""; // 對話以全域預設建立;各步驟訊息由 Orchestrator 切換 Agent
+          routeLog = {
+            level: "INFO", source: "🤖 路由",
+            msg: `啟動 SDLC 全流程(信心 ${(decision.confidence * 100).toFixed(0)}%)— ${decision.reason}`,
+            ts: new Date().toISOString(),
+          };
+        } else if (routed && decision && decision.confidence >= ROUTE_CONFIDENCE_THRESHOLD) {
           effProfile = routed.id;
           routeLog = {
             level: "INFO", source: "🤖 路由",
@@ -288,14 +298,16 @@ export function App() {
         setLogs((prev) => [...prev, line]);
       }
 
-      const messageId = await postMessage(
-        convId.current,
-        text,
-        switched ? model : undefined,
-        switched && effProfile ? effProfile : undefined,
-        switched && effProfile ? vars : undefined,
-        attached.length > 0 ? attached.map((a) => a.fileId) : undefined,
-      );
+      const messageId = pipeline
+        ? (await orchestrate(convId.current, text, vars)).messageId
+        : await postMessage(
+            convId.current,
+            text,
+            switched ? model : undefined,
+            switched && effProfile ? effProfile : undefined,
+            switched && effProfile ? vars : undefined,
+            attached.length > 0 ? attached.map((a) => a.fileId) : undefined,
+          );
       setAttachments([]);
       setDismissedSuggestion(null); // 新一輪訊息允許重新建議
 
@@ -328,7 +340,7 @@ export function App() {
           setLogs((prev) => [...prev, { level: "ERROR", source: "client", msg: "串流連線中斷", ts: "" }]);
           setSending(false);
         },
-      });
+      }, pipeline ? `/api/messages/${messageId}/orchestrate/stream` : undefined);
     } catch (err) {
       setLogs((prev) => [...prev, { level: "ERROR", source: "client", msg: String(err), ts: "" }]);
       setSending(false);

@@ -229,6 +229,34 @@ paths:
         "200":
           description: "{target: AGENT|PIPELINE|NONE, agentProfileId, agentName, confidence: 0~1, reason}"
 
+  /api/conversations/{conversationId}/orchestrate:
+    post:
+      summary: 層次二 Orchestrator:於同一對話啟動 SDLC 流水線(BDD 規格 → BRD 業務文件 → Java 產碼 → Code Review),建立步驟 1 訊息並回傳 messageId 與步驟清單;串流見 /orchestrate/stream
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, description: 全流程目標(可含 Mural 看板 URL) }
+                promptVariables:
+                  type: object
+                  additionalProperties: { type: string }
+      responses:
+        "201":
+          description: "{messageId, steps: [Agent 名稱…]}"
+
+  /api/messages/{messageId}/orchestrate/stream:
+    get:
+      summary: 流水線單一 SSE 串流(messageId 為 orchestrate 回傳者)。事件同五型協定;步驟邊界以 content 標題與 source=orchestrator 的 log 呈現;中間步驟 done 轉 log,僅最終步驟發 done;步驟 1 無 Gherkin 產出時 ERROR log + done 優雅中止
+      parameters:
+        - { name: messageId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: text/event-stream }
+
   /api/settings:
     get:
       summary: 執行期設定(system prompt / base URL / token 遮罩 / Mural MCP 參數)

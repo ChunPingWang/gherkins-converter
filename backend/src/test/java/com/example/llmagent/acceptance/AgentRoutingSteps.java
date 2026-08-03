@@ -75,6 +75,12 @@ public class AgentRoutingSteps {
         cannedReply = reply;
     }
 
+    @Given("路由模型將回傳 pipeline 決策且信心為 {double}")
+    public void modelReturnsPipeline(double confidence) {
+        cannedReply = "{\"agentProfileId\":\"pipeline\",\"confidence\":" + confidence
+                + ",\"reason\":\"要求全流程\"}";
+    }
+
     @Given("路由模型將回傳未知 Agent id 的 JSON 決策")
     public void modelReturnsUnknownId() {
         cannedReply = "{\"agentProfileId\":\"no-such-id\",\"confidence\":0.9,\"reason\":\"x\"}";

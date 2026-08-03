@@ -216,7 +216,30 @@ Agent 下拉選「🤖 自動」時,送出前先以一次輕量 LLM 呼叫判斷
   退回人工選擇,不阻斷送出;路由呼叫不掛任何工具、不寫入對話
 - 後端:`application/AgentRouterService.java`、`adapter/in/web/RouteController.java`;
   前端:`App.tsx` 的 `AUTO_PROFILE` 分支(信心門檻 0.6)
-- 驗收:`features/agent_routing.feature`(6 場景,fake provider 決定性執行)
+- 驗收:`features/agent_routing.feature`(7 場景,fake provider 決定性執行)
+
+### 原理 11:SDLC 流水線編排(層次二 Orchestrator)
+
+自動模式下要求「全流程/一條龍」時,路由決策為 `PIPELINE`,由 Orchestrator 於**同一對話**內
+依序協調四個 Agent 接力,前一步驟產出自動餵給下一步驟:
+
+```
+使用者目標(可含 Mural 看板 URL)
+  └▶ 步驟 1 BDD 規格 Agent(可用 Mural 工具)──▶ Gherkin ─┐
+      步驟 2 BRD 業務文件 Agent ◀── Gherkin ──────────────┤
+      步驟 3 Java 產碼 Agent    ◀── Gherkin ──────────────┘
+      步驟 4 Code Review Agent  ◀── 步驟 3 全部程式碼
+```
+
+- **同一對話、逐步建訊息**:沿用 WP3-T3 對話中切換 Agent,每步驟訊息記錄
+  `agentProfileId`,追溯鏈與稽核不變;產出物照常抽取版本化(artifacts 表)
+- **單一 SSE 串流**:沿用「POST 建訊息 → GET 串流」模式;步驟邊界以 content 標題
+  (`## 🧩 步驟 i/4:…`)與 `source=orchestrator` 的 log 呈現;**中間步驟 done 轉 log**,
+  僅最終步驟發 done(前端據以關閉連線);步驟 1 無 Gherkin 產出時 ERROR log + done 優雅中止
+- 端點:`POST /api/conversations/{id}/orchestrate` → `GET /api/messages/{id}/orchestrate/stream`;
+  實作:`application/OrchestratorService.java`
+- 驗收:`features/orchestrator.feature`(3 場景:四步接力/優雅中止/缺 Agent 拒啟動)
+- 實測:登入需求一句話 → 75 秒跑完四步驟,GHERKIN + 18 個 JAVA 產出物 + 審查意見
 
 ---
 
