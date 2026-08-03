@@ -196,6 +196,28 @@ LLMAGENT_MCP_ENABLED=true MURAL_CLIENT_ID=... MURAL_CLIENT_SECRET=... ./gradlew 
 UI 操作:選「BDD 規格 Agent」(tools 已含 `mural`)→ 輸入「列出我的 Mural 工作區/讀取某看板的
 便利貼並轉成 Gherkin」→ 日誌面板即時顯示 🔧 工具呼叫進度,回覆為看板內容轉出的產物。
 
+### 原理 10:Agent 自動路由(層次一)
+
+Agent 下拉選「🤖 自動」時,送出前先以一次輕量 LLM 呼叫判斷訊息意圖,自動選擇 Agent:
+
+```
+使用者訊息 ──POST /api/route──▶ AgentRouterService(候選 Agent 清單 + 路由 prompt)
+                                        │ 回傳決策物件 {target, agentProfileId, confidence, reason}
+        高信心(≥0.6)──────────────────┤
+        │  直接以該 Agent 送出,日誌顯示 🤖 路由決策(信心/理由)
+        低信心 / NONE ──────────────────┘
+           退回人工確認(沿用「送出攔截確認」視窗)或全域預設
+```
+
+- **決策物件為可擴充介面**:`target` 已預留 `PIPELINE` 給層次二(Orchestrator 流程編排),
+  屆時路由目標多一種型別即可,介面不重工
+- **防錯配設計**(承 Agent 錯配教訓):路由僅是建議,實際送出仍走既有 `/messages` 流程並記錄
+  `agentProfileId`(追溯不變);任何偏差(非 JSON、未知 id、模型不確定)一律降級 `NONE`
+  退回人工選擇,不阻斷送出;路由呼叫不掛任何工具、不寫入對話
+- 後端:`application/AgentRouterService.java`、`adapter/in/web/RouteController.java`;
+  前端:`App.tsx` 的 `AUTO_PROFILE` 分支(信心門檻 0.6)
+- 驗收:`features/agent_routing.feature`(6 場景,fake provider 決定性執行)
+
 ---
 
 ## 3. 快速開始

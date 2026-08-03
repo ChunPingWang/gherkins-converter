@@ -214,6 +214,21 @@ paths:
         "200":
           description: "{ok, latencyMs, models, error}"
 
+  /api/route:
+    post:
+      summary: Agent 自動路由(層次一):以輕量 LLM 呼叫判斷訊息意圖,回傳決策物件。target 預留 PIPELINE 給層次二流程編排;無法判斷/解析失敗一律降級 NONE(前端退回人工選擇)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, description: 使用者訊息 }
+      responses:
+        "200":
+          description: "{target: AGENT|PIPELINE|NONE, agentProfileId, agentName, confidence: 0~1, reason}"
+
   /api/settings:
     get:
       summary: 執行期設定(system prompt / base URL / token 遮罩 / Mural MCP 參數)

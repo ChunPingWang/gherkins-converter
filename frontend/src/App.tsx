@@ -5,6 +5,7 @@ import {
   fetchAgentProfiles,
   fetchModels,
   postMessage,
+  routeAgent,
   streamMessage,
   uploadFile,
   type AgentProfile,
@@ -47,6 +48,11 @@ const PREFERRED_DEFAULT = "claude-opus-4-8";
 
 let uid = 0;
 const nextId = () => `local-${uid++}`;
+
+/** Agent 下拉的「自動路由」選項值(非真實 Profile id)。 */
+const AUTO_PROFILE = "__auto__";
+/** 自動路由信心門檻:低於此值退回人工確認(沿用攔截確認視窗)。 */
+const ROUTE_CONFIDENCE_THRESHOLD = 0.6;
 
 /** 工具參數摘要:單行、截斷,供日誌列顯示。 */
 function summarizeArgs(args: unknown): string {
@@ -170,6 +176,7 @@ export function App() {
     }
   }
   const agentSuggestion = useMemo(() => {
+    if (profileId === AUTO_PROFILE) return null; // 自動模式:由後端路由,不出建議條
     const s = suggestAgent(input, attachments.map((a) => a.filename), profiles, profileId);
     return s && s.profile.id !== dismissedSuggestion ? s : null;
   }, [input, attachments, profiles, profileId, dismissedSuggestion]);
@@ -188,18 +195,69 @@ export function App() {
   async function send(textArg?: string, profileOverride?: string, skipIntercept = false) {
     const text = (textArg ?? input).trim();
     if (!text || sending) return;
-    // 送出時攔截:訊息意圖與目前 Agent 不符 → 跳確認視窗,明確二選一後才送
-    if (profileOverride === undefined && !skipIntercept) {
+    const isAuto = (profileOverride ?? profileId) === AUTO_PROFILE;
+    // 送出時攔截(手動模式):訊息意圖與目前 Agent 不符 → 跳確認視窗,明確二選一後才送
+    if (profileOverride === undefined && !skipIntercept && !isAuto) {
       const s = suggestAgent(text, attachments.map((a) => a.filename), profiles, profileId);
       if (s && s.profile.id !== dismissedSuggestion) {
         setPendingConfirm({ text, suggestion: s });
         return;
       }
     }
+    // 自動路由(層次一):送出前先取得決策物件;低信心或無法判斷退回人工確認(沿用攔截視窗)
+    let effProfile = profileOverride ?? profileId;
+    let routeLog: LogLine | null = null;
+    if (isAuto) {
+      if (skipIntercept) {
+        effProfile = ""; // 確認視窗選「仍用目前」:自動模式下以全域預設送出
+      } else {
+        setSending(true);
+        let decision: Awaited<ReturnType<typeof routeAgent>> | null = null;
+        try {
+          decision = await routeAgent(text);
+        } catch {
+          decision = null;
+        }
+        setSending(false);
+        const routed = decision && decision.target === "AGENT" && decision.agentProfileId
+          ? profiles.find((p) => p.id === decision.agentProfileId) ?? null
+          : null;
+        if (routed && decision && decision.confidence >= ROUTE_CONFIDENCE_THRESHOLD) {
+          effProfile = routed.id;
+          routeLog = {
+            level: "INFO", source: "🤖 路由",
+            msg: `自動選擇「${routed.name}」(信心 ${(decision.confidence * 100).toFixed(0)}%)— ${decision.reason}`,
+            ts: new Date().toISOString(),
+          };
+        } else if (routed && decision) {
+          setPendingConfirm({
+            text,
+            suggestion: {
+              profile: routed,
+              reason: `自動路由建議(信心 ${(decision.confidence * 100).toFixed(0)}%):${decision.reason}`,
+            },
+          });
+          return;
+        } else {
+          const s = suggestAgent(text, attachments.map((a) => a.filename), profiles, "");
+          if (s) {
+            setPendingConfirm({ text, suggestion: s });
+            return;
+          }
+          effProfile = "";
+          routeLog = {
+            level: "WARN", source: "🤖 路由",
+            msg: `無法判斷意圖(${decision?.reason ?? "路由呼叫失敗"}),以全域預設送出`,
+            ts: new Date().toISOString(),
+          };
+        }
+      }
+    }
     setSending(true);
     if (textArg === undefined) setInput("");
-    const effProfile = profileOverride ?? profileId;
-    if (profileOverride !== undefined) setProfileId(profileOverride); // 同步下拉顯示
+    if (profileOverride !== undefined && profileId !== AUTO_PROFILE) {
+      setProfileId(profileOverride); // 同步下拉顯示(自動模式維持「自動」)
+    }
 
     try {
       const vars = { project_name: "llm-webapp", gherkin_locale: "zh-TW" };
@@ -220,10 +278,15 @@ export function App() {
       };
       const assistantId = nextId();
       const assistant: ChatMessage = {
-        id: assistantId, role: "assistant", content: "", thinking: "", logs: [],
+        id: assistantId, role: "assistant", content: "", thinking: "",
+        logs: routeLog ? [routeLog] : [],
         streaming: true, model,
       };
       setMessages((prev) => [...prev, userMsg, assistant]);
+      if (routeLog) {
+        const line = routeLog;
+        setLogs((prev) => [...prev, line]);
+      }
 
       const messageId = await postMessage(
         convId.current,
@@ -311,6 +374,7 @@ export function App() {
           <label>Agent</label>
           <select value={profileId} onChange={(e) => setProfileId(e.target.value)} disabled={sending}>
             <option value="">（全域預設）</option>
+            <option value={AUTO_PROFILE}>🤖 自動（依訊息路由）</option>
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>{p.name} v{p.version}</option>
             ))}
@@ -561,14 +625,15 @@ export function App() {
             <p>
               這則訊息看起來是<strong>{pendingConfirm.suggestion.reason}</strong>,
               但目前選的 Agent 是「
-              {profiles.find((p) => p.id === profileId)?.name ?? "(全域預設)"}」。
+              {profiles.find((p) => p.id === profileId)?.name
+                ?? (profileId === AUTO_PROFILE ? "自動路由" : "(全域預設)")}」。
             </p>
             <div className="confirm-agent-actions">
               <button onClick={() => confirmSend(true)}>
                 改用「{pendingConfirm.suggestion.profile.name}」送出
               </button>
               <button className="settings-btn" onClick={() => confirmSend(false)}>
-                仍用目前 Agent 送出
+                {profileId === AUTO_PROFILE ? "以全域預設送出" : "仍用目前 Agent 送出"}
               </button>
             </div>
           </div>

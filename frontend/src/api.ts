@@ -72,6 +72,26 @@ export interface Settings {
   mural: MuralSettings;
 }
 
+/** Agent 自動路由決策(層次一;target=PIPELINE 保留給層次二)。 */
+export interface RouteDecision {
+  target: "AGENT" | "PIPELINE" | "NONE";
+  agentProfileId: string | null;
+  agentName: string | null;
+  confidence: number;
+  reason: string;
+}
+
+/** 自動路由:判斷訊息意圖應交給哪個 Agent。 */
+export async function routeAgent(content: string): Promise<RouteDecision> {
+  const res = await fetch("/api/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`routeAgent failed: ${res.status}`);
+  return res.json();
+}
+
 /** 取得執行期設定(token 遮罩)。 */
 export async function fetchSettings(): Promise<Settings> {
   const res = await fetch("/api/settings");
