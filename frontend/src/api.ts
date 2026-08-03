@@ -9,6 +9,7 @@ export interface AgentProfile {
   defaultModelId: string | null;
   temperature: number | null;
   enabled: boolean;
+  createdAt: string;
 }
 
 export async function fetchAgentProfiles(): Promise<AgentProfile[]> {
@@ -20,6 +21,13 @@ export async function fetchAgentProfiles(): Promise<AgentProfile[]> {
 export async function fetchAgentProfileVersions(id: string): Promise<AgentProfile[]> {
   const res = await fetch(`/api/agent-profiles/${id}/versions`);
   if (!res.ok) throw new Error(`versions failed: ${res.status}`);
+  return res.json();
+}
+
+/** 還原至指定版本:以該版內容 append 為最新版本(版本鏈不回退)。 */
+export async function restoreAgentProfileVersion(id: string, version: number): Promise<AgentProfile> {
+  const res = await fetch(`/api/agent-profiles/${id}/versions/${version}/restore`, { method: "POST" });
+  if (!res.ok) throw new Error(`restore failed: ${res.status}`);
   return res.json();
 }
 

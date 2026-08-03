@@ -75,11 +75,20 @@ paths:
 
   /api/agent-profiles/{profileId}/versions:
     get:
-      summary: Prompt 版本歷史
+      summary: Prompt 版本歷史(完整內容,含 createdAt)
       parameters:
         - { name: profileId, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: OK }
+
+  /api/agent-profiles/{profileId}/versions/{version}/restore:
+    post:
+      summary: 還原至指定版本:以該版全部內容 append 為最新版本(版本鏈不回退,還原本身可再被還原)
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string } }
+        - { name: version, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: 還原後的最新版本 }
 
   /api/conversations:
     post:

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   fetchAgentProfiles,
   fetchAgentProfileVersions,
+  restoreAgentProfileVersion,
   saveAgentProfile,
   type AgentProfile,
 } from "../api";
@@ -65,6 +66,20 @@ export function AgentProfilesModal({ onClose }: { onClose: () => void }) {
     setShowVersions((v) => !v);
   }
 
+  /** 還原至舊版本:以該版內容 append 為新版本,並重新載入。 */
+  async function restore(version: number) {
+    if (!selected) return;
+    setStatus("saving");
+    try {
+      const restored = await restoreAgentProfileVersion(selected.id, version);
+      await reload(restored.id);
+      setStatus("saved");
+      setTimeout(() => setStatus("idle"), 1800);
+    } catch {
+      setStatus("error");
+    }
+  }
+
   return (
     <Modal
       title="Agent Profile 管理"
@@ -126,8 +141,19 @@ export function AgentProfilesModal({ onClose }: { onClose: () => void }) {
                       <details>
                         <summary>
                           v{v.version} · {v.name}
+                          {v.createdAt && ` · ${new Date(v.createdAt).toLocaleString()}`}
+                          {v.version === selected.version && "(目前)"}
                         </summary>
                         <pre>{v.systemPrompt}</pre>
+                        {v.version !== selected.version && (
+                          <button
+                            className="settings-btn"
+                            disabled={status === "saving"}
+                            onClick={() => restore(v.version)}
+                          >
+                            還原此版(以 v{v.version} 內容建立新版本)
+                          </button>
+                        )}
                       </details>
                     </li>
                   ))}

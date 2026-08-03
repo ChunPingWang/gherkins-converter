@@ -70,6 +70,17 @@ public class AgentProfileService {
         return store.findVersions(profileId);
     }
 
+    /** 還原至指定版本:以該版全部內容 append 為最新版本(版本鏈不回退,還原本身可再被還原)。 */
+    public AgentProfile restore(String profileId, int version) {
+        AgentProfile target = store.findVersions(profileId).stream()
+                .filter(p -> p.version() == version)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "version not found: " + profileId + " v" + version));
+        return update(profileId, target.name(), target.description(), target.systemPrompt(),
+                target.defaultModelId(), target.temperature(), target.tools());
+    }
+
     /**
      * 解析 Profile 的 system prompt(套用範本變數)。
      * Prompt 主版本優先自 Langfuse Prompt Management 取用(以 Profile 名稱對應,ADR-006/WP4-T5),

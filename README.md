@@ -108,13 +108,27 @@ Reasoning 模型(DeepSeek-R1、Qwen3 等)會輸出 `<think>...</think>`。解析
 `domain/thinking/ThinkingParser.java` 以「保留可能是標籤前綴的尾端」解決,並容錯未閉合標籤。
 測試:`ThinkingParserTest`(跨 chunk 切斷、未閉合、`1 < 2` 非標籤等)。
 
-### 原理 4:System Prompt 工程 — 範圍限制
+### 原理 4:System Prompt 工程 — 範圍限制 + 檔案隔離 + 版本控制
 
 一開始的 system prompt 把 Agent 寫成「什麼都會的 SDLC 專家」,結果 Step 1 只要 Gherkin 卻多產出 15 個 Java 檔。
 修正方式是在 prompt 最前面加上**範圍限制**:「只輸出當前訊息明確要求的產物;多步驟分次進行」。
 這是實際踩過的坑:**能力描述會誘導模型過度產出,範圍必須顯式約束**。
-Prompt 全文在 `backend/src/main/resources/application.yaml`(`llmagent.chat.default-system-prompt`),
-也可在 ⚙ 設定視窗即時修改。
+
+**Prompt 與程式碼隔離**:所有 System Prompt 不寫在 Java/yaml 裡,統一存於
+`backend/src/main/resources/seed/prompts/*.md`(四個內建 Agent + 全域預設,
+`PromptResources` 載入);修改 prompt = 改 md 檔,不碰程式碼。
+
+**Prompt 專屬版本控制**(append-only,`agent_profiles` 表):
+
+```
+seed/prompts/*.md ──(內容變更)──▶ AgentProfileSeeder 啟動時自動 append 新版本
+UI「管理」視窗編輯 ────儲存────▶ append 新版本(同一條版本鏈)
+版本歷史(含時間戳)──「還原此版」──▶ 以舊版內容 append 為新版本(鏈不回退,可再還原)
+```
+
+- 每則訊息記錄使用的 `agentProfileId + version`,產出物可追溯至生成當下的 prompt 版本(ADR-006)
+- API:`GET /{id}/versions`、`POST /{id}/versions/{v}/restore`;UI:「管理」視窗(編輯/歷史/還原)
+- 驗收:`features/prompt_management.feature`(5 場景:檔案種子化/內容變更出版/未變不出版/還原/還原不存在版本)
 
 ### 原理 5:Word 產生/預覽管線(ADR-004、WP6)
 

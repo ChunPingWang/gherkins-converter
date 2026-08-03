@@ -63,4 +63,10 @@ public class AgentProfileController {
     public List<AgentProfile> versions(@PathVariable String profileId) {
         return service.versions(profileId);
     }
+
+    /** 還原至指定版本(以該版內容 append 為新版本,版本鏈不回退)。 */
+    @PostMapping("/{profileId}/versions/{version}/restore")
+    public AgentProfile restore(@PathVariable String profileId, @PathVariable int version) {
+        return service.restore(profileId, version);
+    }
 }
