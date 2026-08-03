@@ -4,12 +4,13 @@
   seeder 以名稱冪等種子化,prompt 檔內容變更時自動 append 新版本;
   版本歷史完整保留(append-only),可還原任一舊版(還原=以舊版內容 append 新版本)。
 
-  場景: 內建四個 Agent 皆以 prompt 資源檔種子化
+  場景: 內建五個 Agent 皆以 prompt 資源檔種子化
     當 系統種子化內建 Agent Profile
     那麼 應存在名為 "BDD 規格 Agent" 的 Agent Profile
+    而且 應存在名為 "BRD 業務文件 Agent" 的 Agent Profile
+    而且 應存在名為 "DDD 設計 Agent" 的 Agent Profile
     而且 應存在名為 "Java 產碼 Agent" 的 Agent Profile
     而且 應存在名為 "Code Review Agent" 的 Agent Profile
-    而且 應存在名為 "BRD 業務文件 Agent" 的 Agent Profile
 
   場景: prompt 內容變更時自動 append 新版本
     假設 以內容 "版本一 prompt" 種子化名為 "測試 Agent" 的內建 Profile

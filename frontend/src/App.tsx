@@ -25,7 +25,19 @@ import { Markdown } from "./components/Markdown";
 import { SettingsModal } from "./components/SettingsModal";
 import type { ChatMessage, LogLine, ModelOption } from "./types";
 
-type Tab = "artifacts" | "word" | "logs";
+type Tab = "spec" | "word" | "plan" | "code" | "review" | "logs";
+
+/** SDLC 流水線步驟 → 階段 Tab(部分對齊 Spec-Kit:Specify/Plan/Implement/Analyze)。 */
+const STEP_TAB: Record<number, Tab> = { 1: "spec", 2: "word", 3: "plan", 4: "code", 5: "review" };
+
+/** Agent 名稱 → 流水線步驟(單步路由時同步階段 Tab 用)。 */
+const AGENT_STEP: Record<string, number> = {
+  "BDD 規格 Agent": 1,
+  "BRD 業務文件 Agent": 2,
+  "DDD 設計 Agent": 3,
+  "Java 產碼 Agent": 4,
+  "Code Review Agent": 5,
+};
 
 /** 由文件內容取標題:第一個 Markdown 標題,否則預設。 */
 function docTitle(markdown: string): string {
@@ -70,7 +82,22 @@ export function App() {
   // 模型與 Agent 選擇持久化:重新整理頁面不重置(曾因重置默默用錯 Agent)
   const [model, setModel] = useState(() => localStorage.getItem("llmagent.model") ?? PREFERRED_DEFAULT);
   const [sending, setSending] = useState(false);
-  const [tab, setTab] = useState<Tab>("artifacts");
+  const [tab, setTab] = useState<Tab>("spec");
+  // SDLC 階段狀態:currentStage 供徽章顯示;ref 供串流 handler 內分桶(避免閉包吃到舊值)
+  const [currentStage, setCurrentStage] = useState(0);
+  const stageRef = useRef(0);
+  // 計畫(Plan)/分析(Analyze)為純 Markdown 內容,依步驟事件分桶累積
+  const [stageText, setStageText] = useState<{ plan: string; review: string }>({ plan: "", review: "" });
+
+  /** 切換目前 SDLC 階段並跳到對應 Tab;stage 3/5 起始時清空該桶。 */
+  function enterStage(stage: number) {
+    stageRef.current = stage;
+    setCurrentStage(stage);
+    const t = STEP_TAB[stage];
+    if (t) setTab(t);
+    if (stage === 3) setStageText((p) => ({ ...p, plan: "" }));
+    if (stage === 5) setStageText((p) => ({ ...p, review: "" }));
+  }
   const [modal, setModal] = useState<null | "word" | "code" | "settings" | "profiles" | "providers">(null);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   // Agent 一律自動路由(層次一),不提供手動切換;特定流程(如產生 BRD)以 profileOverride 指定
@@ -133,6 +160,14 @@ export function App() {
   const brdProfile = useMemo(
     () => profiles.find((p) => p.name === "BRD 業務文件 Agent"),
     [profiles],
+  );
+  const javaBlockCount = useMemo(
+    () => (lastAssistant?.content.match(/```java[\s\S]*?```/g) ?? []).length,
+    [lastAssistant],
+  );
+  const gherkinBlockCount = useMemo(
+    () => (lastAssistant?.content.match(/```gherkin[\s\S]*?```/g) ?? []).length,
+    [lastAssistant],
   );
   const gherkinBlocks = useMemo(
     () =>
@@ -204,6 +239,8 @@ export function App() {
         if (decision && decision.target === "PIPELINE") {
           pipeline = true;
           effProfile = ""; // 對話以全域預設建立;各步驟訊息由 Orchestrator 切換 Agent
+          setStageText({ plan: "", review: "" }); // 新一輪流水線:清空階段桶
+          enterStage(1);
           routeLog = {
             level: "INFO", source: "🤖 路由",
             msg: `啟動 SDLC 全流程(信心 ${(decision.confidence * 100).toFixed(0)}%)— ${decision.reason}`,
@@ -211,6 +248,8 @@ export function App() {
           };
         } else if (routed && decision && decision.confidence >= ROUTE_CONFIDENCE_THRESHOLD) {
           effProfile = routed.id;
+          const stage = AGENT_STEP[routed.name];
+          if (stage) enterStage(stage); // 單步路由:同步切到對應階段 Tab
           routeLog = {
             level: "INFO", source: "🤖 路由",
             msg: `自動選擇「${routed.name}」(信心 ${(decision.confidence * 100).toFixed(0)}%)— ${decision.reason}`,
@@ -239,6 +278,12 @@ export function App() {
           };
         }
       }
+    }
+    // 一鍵流程(如產生 BRD)以 profileOverride 指定 Agent:同步對應階段 Tab
+    if (!pipeline && profileOverride) {
+      const name = profiles.find((p) => p.id === profileOverride)?.name;
+      const st = name ? AGENT_STEP[name] : undefined;
+      if (st) enterStage(st);
     }
     setSending(true);
     if (textArg === undefined) setInput("");
@@ -286,7 +331,12 @@ export function App() {
 
       esRef.current = streamMessage(messageId, {
         onThinking: (d) => patch(assistantId, (m) => ({ ...m, thinking: m.thinking + d })),
-        onContent: (d) => patch(assistantId, (m) => ({ ...m, content: m.content + d })),
+        onContent: (d) => {
+          patch(assistantId, (m) => ({ ...m, content: m.content + d }));
+          // 計畫/分析階段的內容同步累積到階段桶(其餘階段由 artifact 型別過濾呈現)
+          if (stageRef.current === 3) setStageText((p) => ({ ...p, plan: p.plan + d }));
+          else if (stageRef.current === 5) setStageText((p) => ({ ...p, review: p.review + d }));
+        },
         onToolCall: (ev) => {
           const line: LogLine = {
             level: ev.status === "error" ? "ERROR" : "INFO",
@@ -301,11 +351,18 @@ export function App() {
         },
         onLog: (line) => {
           if (line.source === "tool") return; // tool_call 事件已以 🔧 呈現,避免重複
+          // 流水線步驟邊界:「步驟 i/n 開始」→ 切換階段桶與 Tab
+          if (line.source === "orchestrator") {
+            const m = line.msg.match(/^步驟 (\d+)\/\d+ 開始/);
+            if (m) enterStage(Number(m[1]));
+          }
           setLogs((prev) => [...prev, line]);
           patch(assistantId, (m) => ({ ...m, logs: [...m.logs, line] }));
         },
         onDone: (info) => {
           patch(assistantId, (m) => ({ ...m, done: info, streaming: false }));
+          stageRef.current = 0;
+          setCurrentStage(0);
           setSending(false);
         },
         onError: () => {
@@ -395,8 +452,8 @@ export function App() {
             {messages.length === 0 && (
               <div className="welcome">
                 <h2>開始對話</h2>
-                <p>透過 IBM ICA 呼叫最新 Claude 模型。試著請它產生一段繁體中文 Gherkin 或 Java 程式碼,
-                  產出物會出現在右側 Artifacts 分頁。</p>
+                <p>輸入需求敘述、附件或 Mural 看板連結,Agent 會自動路由;說「做完全流程」即依
+                  規格 → BRD → 計畫 → 實作 → 分析 五階段接力,產出即時呈現在右側對應分頁。</p>
               </div>
             )}
             {messages.map((m) => (
@@ -469,23 +526,55 @@ export function App() {
 
         <aside className="sidebar">
           <div className="tabs">
-            <button className={tab === "artifacts" ? "active" : ""} onClick={() => setTab("artifacts")}>
-              Artifacts
-            </button>
-            <button className={tab === "word" ? "active" : ""} onClick={() => setTab("word")}>
-              Word 預覽
-            </button>
+            {([
+              { key: "spec", label: "📐 規格", stage: 1, has: gherkinBlockCount > 0 },
+              { key: "word", label: "📄 BRD", stage: 2, has: !!brdFill || !!uploadedDoc },
+              { key: "plan", label: "🧭 計畫", stage: 3, has: stageText.plan.trim().length > 0 },
+              { key: "code", label: "💻 實作", stage: 4, has: javaBlockCount > 0 },
+              { key: "review", label: "🔍 分析", stage: 5, has: stageText.review.trim().length > 0 },
+            ] as { key: Tab; label: string; stage: number; has: boolean }[]).map((t) => (
+              <button
+                key={t.key}
+                className={tab === t.key ? "active" : ""}
+                onClick={() => setTab(t.key)}
+                title={sending && currentStage === t.stage ? "此階段進行中" : undefined}
+              >
+                {t.label}
+                {sending && currentStage === t.stage ? " ●" : t.has ? " ✓" : ""}
+              </button>
+            ))}
             <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
               日誌{logs.length > 0 ? ` (${logs.length})` : ""}
             </button>
           </div>
           <div className="tab-body" ref={tabBodyRef}>
-            {tab === "artifacts" && (
+            {tab === "spec" && (
               <ArtifactPanel
                 sourceMarkdown={lastAssistant?.content ?? ""}
                 conversationId={convId.current}
                 onExpand={() => setModal("code")}
+                filter="GHERKIN"
+                emptyHint="尚無 Gherkin 規格。送出需求敘述、附件或 Mural 看板連結開始(Specify 階段)。"
               />
+            )}
+            {tab === "plan" && (
+              stageText.plan.trim()
+                ? <div className="stage-md"><Markdown>{stageText.plan}</Markdown></div>
+                : <p className="empty">尚無技術計畫。全流程會在 Plan 階段由 DDD 設計 Agent 產出(Bounded Context/聚合根/Command/Event)。</p>
+            )}
+            {tab === "code" && (
+              <ArtifactPanel
+                sourceMarkdown={lastAssistant?.content ?? ""}
+                conversationId={convId.current}
+                onExpand={() => setModal("code")}
+                filter="JAVA"
+                emptyHint="尚無程式碼。Implement 階段會依技術計畫逐批產出 Java + Cucumber。"
+              />
+            )}
+            {tab === "review" && (
+              stageText.review.trim()
+                ? <div className="stage-md"><Markdown>{stageText.review}</Markdown></div>
+                : <p className="empty">尚無審查報告。Analyze 階段會做品質審查與 Gherkin↔實作↔測試追溯檢查。</p>
             )}
             {tab === "word" && (
               <>

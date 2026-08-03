@@ -37,13 +37,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** 層次二 Orchestrator steps。fake provider 依步驟序回放,離線決定性執行。 */
+/** 層次二 Orchestrator steps(五步流水線 + 分批)。fake provider 依序回放,離線決定性執行。 */
 public class OrchestratorSteps {
 
     private static final String GHERKIN_REPLY =
             "```gherkin\n# language: zh-TW\n功能: 使用者登入\n場景: 成功登入\n```";
+    private static final String BRD_REPLY = "```json\n{\"brdFill\":true}\n```";
+    private static final String PLAN_REPLY = "## Bounded Context\n單一 context 即可,無需切分。";
     private static final String JAVA_REPLY =
-            "```java\n// src/main/java/App.java\npublic class App {}\n```";
+            "```java\n// src/main/java/com/example/App.java\npublic class App {}\n```";
+    private static final String REVIEW_REPLY = "審查通過,無重大問題";
 
     /** 腳本項:text 為回覆內容;fail=true 模擬串流中途中斷(部分內容後 error)。 */
     private record Scripted(String text, boolean fail) {
@@ -90,7 +93,7 @@ public class OrchestratorSteps {
         }
     }
 
-    @Given("已種子化流水線所需的四個 Agent")
+    @Given("已種子化流水線所需的五個 Agent")
     public void seedAll() {
         seed(OrchestratorService.STEP_AGENTS);
     }
@@ -102,12 +105,27 @@ public class OrchestratorSteps {
         seed(OrchestratorService.STEP_AGENTS.stream().filter(n -> !n.equals(missing)).toList());
     }
 
-    @Given("流水線模型將依序回覆 Gherkin、BRD JSON、Java 程式碼、審查意見")
+    @Given("流水線模型將依序回覆 Gherkin、BRD JSON、無分批標記的 Plan、Java 程式碼、審查意見")
     public void scriptedReplies() {
         replies.add(new Scripted(GHERKIN_REPLY, false));
-        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted(BRD_REPLY, false));
+        replies.add(new Scripted(PLAN_REPLY, false));
         replies.add(new Scripted(JAVA_REPLY, false));
-        replies.add(new Scripted("審查通過,無重大問題", false));
+        replies.add(new Scripted(REVIEW_REPLY, false));
+    }
+
+    @Given("流水線模型的 Plan 將標記 CONTEXTS 為 {string}")
+    public void planWithContexts(String contexts) {
+        replies.add(new Scripted(GHERKIN_REPLY, false));
+        replies.add(new Scripted(BRD_REPLY, false));
+        replies.add(new Scripted(PLAN_REPLY + "\nCONTEXTS: " + contexts, false));
+        String[] names = contexts.split(",");
+        for (int i = 0; i < names.length; i++) {
+            replies.add(new Scripted(
+                    "```java\n// src/main/java/Ctx" + i + ".java\npublic class Ctx" + i + " {}\n```",
+                    false));
+        }
+        replies.add(new Scripted(REVIEW_REPLY, false));
     }
 
     @Given("流水線模型將於步驟 1 回覆純文字 {string}")
@@ -115,19 +133,21 @@ public class OrchestratorSteps {
         replies.add(new Scripted(reply, false));
     }
 
-    @Given("流水線模型步驟 3 首次將中斷,重試與其他步驟正常回覆")
-    public void step3FailsOnceThenRecovers() {
+    @Given("流水線模型產碼步驟首次將中斷,重試與其他步驟正常回覆")
+    public void implementFailsOnceThenRecovers() {
         replies.add(new Scripted(GHERKIN_REPLY, false));
-        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted(BRD_REPLY, false));
+        replies.add(new Scripted(PLAN_REPLY, false));
         replies.add(new Scripted("```java\n// 部分內容後中斷", true));
         replies.add(new Scripted(JAVA_REPLY, false));
-        replies.add(new Scripted("審查通過,無重大問題", false));
+        replies.add(new Scripted(REVIEW_REPLY, false));
     }
 
-    @Given("流水線模型步驟 3 連兩次中斷,其他步驟正常回覆")
-    public void step3FailsTwice() {
+    @Given("流水線模型產碼步驟連兩次中斷,其他步驟正常回覆")
+    public void implementFailsTwice() {
         replies.add(new Scripted(GHERKIN_REPLY, false));
-        replies.add(new Scripted("```json\n{\"brdFill\":true}\n```", false));
+        replies.add(new Scripted(BRD_REPLY, false));
+        replies.add(new Scripted(PLAN_REPLY, false));
         replies.add(new Scripted("```java\n// 部分內容後中斷", true));
         replies.add(new Scripted("```java\n// 又中斷", true));
         replies.add(new Scripted("審查:程式碼不完整", false));
@@ -142,17 +162,17 @@ public class OrchestratorSteps {
         assertNotNull(events);
     }
 
-    @Then("串流應依序出現四個步驟的開始 log")
-    public void stepStartLogsInOrder() {
+    @Then("串流應依序出現 {int} 個步驟的開始 log")
+    public void stepStartLogsInOrder(int count) {
         List<String> startLogs = events.stream()
                 .filter(e -> e.type() == SseEventType.LOG)
                 .map(e -> (StreamEvent.LogLine) e.payload())
                 .filter(l -> "orchestrator".equals(l.source()) && l.msg().contains("開始"))
                 .map(StreamEvent.LogLine::msg)
                 .toList();
-        assertEquals(4, startLogs.size(), "步驟開始 log 數:" + startLogs);
-        for (int i = 0; i < 4; i++) {
-            assertTrue(startLogs.get(i).startsWith("步驟 " + (i + 1) + "/4"),
+        assertEquals(count, startLogs.size(), "步驟開始 log 數:" + startLogs);
+        for (int i = 0; i < count; i++) {
+            assertTrue(startLogs.get(i).startsWith("步驟 " + (i + 1) + "/" + count),
                     "第 " + (i + 1) + " 筆:" + startLogs.get(i));
         }
     }
@@ -171,33 +191,37 @@ public class OrchestratorSteps {
 
     @And("步驟 2 的輸入應包含步驟 1 的 Gherkin 內容")
     public void step2InputHasGherkin() {
-        String input = lastUserContent(calls.get(1));
-        assertTrue(input.contains("功能: 使用者登入"), "步驟 2 輸入:" + input);
+        assertTrue(lastUserContent(calls.get(1)).contains("功能: 使用者登入"));
     }
 
-    @And("步驟 4 的輸入應包含步驟 3 的 Java 程式碼")
-    public void step4InputHasJava() {
-        String input = calls.stream()
+    @And("產碼輸入應包含 DDD 技術計畫")
+    public void implementInputHasPlan() {
+        String input = firstInputStartingWith("請依據以下 Gherkin 與 DDD 技術計畫");
+        assertTrue(input.contains("Bounded Context"), "產碼輸入:" + input);
+    }
+
+    @And("產碼批次 {int} 的輸入應限定 context {string}")
+    public void batchInputScoped(int batchNo, String context) {
+        List<String> batchInputs = calls.stream()
                 .map(this::lastUserContent)
-                .filter(t -> t.startsWith("請審查"))
-                .reduce((a, b) -> b)
-                .orElse("");
-        assertTrue(input.contains("public class App"), "步驟 4 輸入:" + input);
+                .filter(t -> t.contains("本批次"))
+                .toList();
+        assertTrue(batchInputs.size() >= batchNo, "批次數不足:" + batchInputs.size());
+        assertTrue(batchInputs.get(batchNo - 1).contains("「" + context + "」"),
+                "批次 " + batchNo + " 輸入:" + batchInputs.get(batchNo - 1));
     }
 
-    @Then("串流應含 source 為 {string} 的 WARN 重試 log")
-    public void hasRetryWarnLog(String source) {
-        boolean found = events.stream()
-                .filter(e -> e.type() == SseEventType.LOG)
-                .map(e -> (StreamEvent.LogLine) e.payload())
-                .anyMatch(l -> source.equals(l.source()) && "WARN".equals(l.level())
-                        && l.msg().contains("重試"));
-        assertTrue(found, "缺少重試 WARN log");
+    @And("審查輸入應包含步驟 4 的 Java 程式碼與 Gherkin")
+    public void reviewInputHasJavaAndGherkin() {
+        String input = firstInputStartingWith("請審查");
+        assertTrue(input.contains("public class App"), "審查輸入缺程式碼");
+        assertTrue(input.contains("功能: 使用者登入"), "審查輸入缺 Gherkin");
     }
 
-    @Then("Provider 應被呼叫 {int} 次")
-    public void providerCallCount(int expected) {
-        assertEquals(expected, calls.size());
+    @And("審查輸入應包含全部批次的程式碼")
+    public void reviewInputHasAllBatches() {
+        String input = firstInputStartingWith("請審查");
+        assertTrue(input.contains("Ctx0") && input.contains("Ctx1"), "審查輸入:" + input);
     }
 
     @And("串流應恰有 1 個 done 事件且位於最後")
@@ -224,12 +248,35 @@ public class OrchestratorSteps {
         assertTrue(found);
     }
 
+    @Then("串流應含 source 為 {string} 的 WARN 重試 log")
+    public void hasRetryWarnLog(String source) {
+        boolean found = events.stream()
+                .filter(e -> e.type() == SseEventType.LOG)
+                .map(e -> (StreamEvent.LogLine) e.payload())
+                .anyMatch(l -> source.equals(l.source()) && "WARN".equals(l.level())
+                        && l.msg().contains("重試"));
+        assertTrue(found, "缺少重試 WARN log");
+    }
+
+    @Then("Provider 應被呼叫 {int} 次")
+    public void providerCallCount(int expected) {
+        assertEquals(expected, calls.size());
+    }
+
     @Then("啟動流水線應失敗並提示缺少 {string}")
     public void startFailsMissingAgent(String agentName) {
         String convId = chatService.createConversation("t", null, null, null, null, null).id();
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> orchestrator.start(convId, "全流程", null));
         assertTrue(ex.getMessage().contains(agentName), ex.getMessage());
+    }
+
+    private String firstInputStartingWith(String prefix) {
+        return calls.stream()
+                .map(this::lastUserContent)
+                .filter(t -> t.startsWith(prefix))
+                .reduce((a, b) -> b)
+                .orElse("");
     }
 
     private String lastUserContent(ChatCall call) {

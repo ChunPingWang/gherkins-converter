@@ -234,18 +234,26 @@ Agent 下拉選「🤖 自動」時,送出前先以一次輕量 LLM 呼叫判斷
   前端:`App.tsx` 的 `AUTO_PROFILE` 分支(信心門檻 0.6)
 - 驗收:`features/agent_routing.feature`(7 場景,fake provider 決定性執行)
 
-### 原理 11:SDLC 流水線編排(層次二 Orchestrator)
+### 原理 11:SDLC 流水線編排(層次二 Orchestrator,部分對齊 GitHub Spec-Kit)
 
 自動模式下要求「全流程/一條龍」時,路由決策為 `PIPELINE`,由 Orchestrator 於**同一對話**內
-依序協調四個 Agent 接力,前一步驟產出自動餵給下一步驟:
+依序協調五個 Agent 接力。階段設計**部分對齊 [Spec-Kit](https://github.com/github/spec-kit)**
+(取觀念不取儀式:Constitution=prompt 檔、Clarify=行為、Tasks=內部分批,詳見下):
 
 ```
 使用者目標(可含 Mural 看板 URL)
-  └▶ 步驟 1 BDD 規格 Agent(可用 Mural 工具)──▶ Gherkin ─┐
-      步驟 2 BRD 業務文件 Agent ◀── Gherkin ──────────────┤
-      步驟 3 Java 產碼 Agent    ◀── Gherkin ──────────────┘
-      步驟 4 Code Review Agent  ◀── 步驟 3 全部程式碼
+  └▶ Specify   步驟 1 BDD 規格 Agent(Mural 工具;Clarify:規則無法判斷時反問並中止)─▶ Gherkin
+               步驟 2 BRD 業務文件 Agent ◀─ Gherkin
+     Plan      步驟 3 DDD 設計 Agent ◀─ Gherkin ─▶ Bounded Context/聚合根/Command/Event + CONTEXTS 標記
+     Implement 步驟 4 Java 產碼 Agent ◀─ Gherkin+Plan ─▶ 依 CONTEXTS 逐批產碼
+               (每 context 一批 = 天然切短單次串流,結構性緩解 ICA 長串流中斷)
+     Analyze   步驟 5 Code Review Agent ◀─ Gherkin+全部程式碼 ─▶ 審查 + 場景↔實作↔測試追溯檢查
 ```
+
+前端右側面板即 SDLC 階段 Tab(📐 規格/📄 BRD/🧭 計畫/💻 實作/🔍 分析/日誌):
+Tab 徽章即進度(✓ 有產出、● 進行中),流水線跑到哪一步自動切到該 Tab;
+「步驟 i/n 開始」log 為前端切換訊號。實測:購物車需求一句話 → 五階段 84 秒,
+Plan 切出 3 個 bounded context、產碼自動分 3 批,GHERKIN + 56 個 JAVA 產出物,零串流中斷。
 
 - **同一對話、逐步建訊息**:沿用 WP3-T3 對話中切換 Agent,每步驟訊息記錄
   `agentProfileId`,追溯鏈與稽核不變;產出物照常抽取版本化(artifacts 表)

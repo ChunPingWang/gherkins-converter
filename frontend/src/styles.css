@@ -361,6 +361,9 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
 .checkbox-field { flex-direction: row; align-items: center; gap: 0.5rem; }
+.stage-md { padding: 0.4rem 0.2rem; font-size: 0.88rem; line-height: 1.6; overflow-wrap: anywhere; }
+.stage-md table { border-collapse: collapse; }
+.stage-md th, .stage-md td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; }
 .auto-agent-badge {
   background: var(--panel2);
   border: 1px solid var(--border);

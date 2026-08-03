@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { downloadArtifact, extractArtifacts, type Artifact } from "../lib/artifacts";
+import { downloadArtifact, extractArtifacts, type Artifact, type ArtifactType } from "../lib/artifacts";
 import { fetchArtifactVersions, type ServerArtifact } from "../api";
 import { diffLines, type DiffLine } from "../lib/diff";
 import { Markdown } from "./Markdown";
@@ -9,12 +9,18 @@ export function ArtifactPanel({
   sourceMarkdown,
   conversationId,
   onExpand,
+  filter,
+  emptyHint,
 }: {
   sourceMarkdown: string;
   conversationId?: string | null;
   onExpand?: () => void;
+  /** 僅顯示指定型別(階段 Tab 用:規格=GHERKIN、實作=JAVA);未指定則全列。 */
+  filter?: ArtifactType;
+  emptyHint?: string;
 }) {
-  const artifacts = extractArtifacts(sourceMarkdown);
+  const artifacts = extractArtifacts(sourceMarkdown)
+    .filter((a) => !filter || a.type === filter);
   const [diff, setDiff] = useState<{ type: string; from: number; to: number; lines: DiffLine[] } | null>(null);
 
   async function showDiff(type: ServerArtifact["type"]) {
@@ -35,7 +41,11 @@ export function ArtifactPanel({
   }
 
   if (artifacts.length === 0) {
-    return <p className="empty">尚無產出物。當助理回覆包含 Gherkin 或 Java code fence 時,會在此列出。</p>;
+    return (
+      <p className="empty">
+        {emptyHint ?? "尚無產出物。當助理回覆包含 Gherkin 或 Java code fence 時,會在此列出。"}
+      </p>
+    );
   }
 
   return (
