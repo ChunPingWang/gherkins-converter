@@ -73,9 +73,13 @@ export function App() {
   const [tab, setTab] = useState<Tab>("artifacts");
   const [modal, setModal] = useState<null | "word" | "code" | "settings" | "profiles" | "providers">(null);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [profileId, setProfileId] = useState<string>(
-    () => localStorage.getItem("llmagent.profileId") ?? "", // "" = 全域預設 prompt
-  );
+  const [profileId, setProfileId] = useState<string>(() => {
+    // 預設「🤖 自動」:由路由器判斷 Agent,使用者無須手動切換。
+    // 新鍵 llmagent.agent 以 "__default__" 明確編碼「全域預設」;舊鍵(空字串歧義)棄用。
+    const stored = localStorage.getItem("llmagent.agent");
+    if (stored === null) return AUTO_PROFILE;
+    return stored === "__default__" ? "" : stored;
+  });
   const [uploadedDoc, setUploadedDoc] = useState<{ url: string; name: string } | null>(null);
   const [attachments, setAttachments] = useState<{ fileId: string; filename: string }[]>([]);
   const [wordTemplate, setWordTemplate] = useState<{ fileId: string; filename: string } | null>(null);
@@ -101,7 +105,7 @@ export function App() {
     localStorage.setItem("llmagent.model", model);
   }, [model]);
   useEffect(() => {
-    localStorage.setItem("llmagent.profileId", profileId);
+    localStorage.setItem("llmagent.agent", profileId === "" ? "__default__" : profileId);
   }, [profileId]);
 
   // 開啟時動態拉取 ICA 模型清單(WP2-T2);失敗則沿用後備清單。

@@ -11,6 +11,11 @@ const RULES: {
   test: (text: string, attachments: string[]) => boolean;
 }[] = [
   {
+    name: "BDD 規格 Agent",
+    reason: "讀取 Mural 看板(需 Mural 工具授權)",
+    test: (t) => /mural/i.test(t),
+  },
+  {
     name: "BRD 業務文件 Agent",
     reason: "步驟二(Gherkin 轉業務需求文件)",
     test: (t, files) =>
