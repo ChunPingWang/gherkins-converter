@@ -268,14 +268,23 @@ paths:
 
   /api/settings:
     get:
-      summary: 執行期設定(system prompt / base URL / token 遮罩 / Mural MCP 參數)
+      summary: 執行期設定(system prompt / base URL / token 遮罩 / Mural MCP / Git 整合)
       responses:
         "200":
-          description: "{systemPrompt, baseUrl, apiKeyMasked, defaultModelId, mural:{enabled, clientId, clientSecretMasked, connected, toolCount}}"
+          description: "{systemPrompt, baseUrl, apiKeyMasked, defaultModelId, mural:{enabled, clientId, clientSecretMasked, connected, toolCount}, git:{repoUrl, tokenMasked}}"
     put:
-      summary: 更新執行期設定(空欄位=不變;僅存記憶體,金鑰不落地)。mural 欄位:{enabled, clientId, clientSecret};變更後下次工具呼叫以新參數重連 MCP
+      summary: 更新執行期設定(空欄位=不變;僅存記憶體,金鑰不落地)。mural:{enabled, clientId, clientSecret};git:{repoUrl, token}(僅支援 github.com,GitLab 規劃中)
       responses:
         "200": { description: OK(同 GET schema) }
+
+  /api/conversations/{conversationId}/publish:
+    post:
+      summary: 依 GitFlow 發布對話產出:Gherkin 每個場景開 Issue → feature/sdlc-<conv> 分支逐檔提交產碼(路徑取自首行註解)與 feature 檔 → 開 PR 以 Closes #n 連結全部 Issues(merge 自動關單)。需先於設定填 Git Repo URL 與 Token
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: "{issues: [{number, url}], branch, prUrl, fileCount}"
 
   /api/settings/mural/test:
     post:

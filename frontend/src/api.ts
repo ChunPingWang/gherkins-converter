@@ -72,12 +72,18 @@ export interface MuralSettings {
   error: string | null;
 }
 
+export interface GitSettings {
+  repoUrl: string;
+  tokenMasked: string;
+}
+
 export interface Settings {
   systemPrompt: string;
   baseUrl: string;
   apiKeyMasked: string;
   defaultModelId: string;
   mural: MuralSettings;
+  git: GitSettings;
 }
 
 /** Agent 自動路由決策(層次一;target=PIPELINE 保留給層次二)。 */
@@ -128,6 +134,7 @@ export async function updateSettings(patch: {
   baseUrl?: string;
   apiKey?: string;
   mural?: { enabled?: boolean; clientId?: string; clientSecret?: string };
+  git?: { repoUrl?: string; token?: string };
 }): Promise<Settings> {
   const res = await fetch("/api/settings", {
     method: "PUT",
@@ -135,6 +142,18 @@ export async function updateSettings(patch: {
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`updateSettings failed: ${res.status}`);
+  return res.json();
+}
+
+/** 發布對話產出至 Git(GitFlow:場景開 Issue → feature 分支提交產碼 → PR 連結 Issues)。 */
+export async function publishConversation(conversationId: string): Promise<{
+  issues: { number: number; url: string }[];
+  branch: string;
+  prUrl: string;
+  fileCount: number;
+}> {
+  const res = await fetch(`/api/conversations/${conversationId}/publish`, { method: "POST" });
+  if (!res.ok) throw new Error(`publish failed: ${res.status}`);
   return res.json();
 }
 

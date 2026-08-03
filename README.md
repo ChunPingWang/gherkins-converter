@@ -270,6 +270,25 @@ Plan 切出 3 個 bounded context、產碼自動分 3 批,GHERKIN + 56 個 JAVA 
   中斷重試/重試仍失敗續行)
 - 實測:登入需求一句話 → 75 秒跑完四步驟,GHERKIN + 18 個 JAVA 產出物 + 審查意見
 
+### 原理 12:GitFlow 發布 — 需求開 Issue、程式碼走 PR
+
+「🚀 發布 Git」把對話產出依 GitFlow 慣例寫入 Git 託管服務(⚙ 設定填 Repo URL / Token,
+金鑰僅存記憶體;目前支援 GitHub,GitLab 規劃中):
+
+```
+Gherkin 每個「場景」──▶ 開一張 Issue(需求追蹤單位,body 附完整規格)
+產出程式碼(路徑取自首行註解)──▶ feature/sdlc-<conv> 分支逐檔提交(含 feature 檔)
+                                └▶ 開 PR:body 以 Closes #n 連結全部 Issues
+                                   merge 時自動關單 → 需求→規格→程式碼→PR 完整追溯鏈
+```
+
+- 這正對應標準 GitFlow 實務:**需求先立 Issue、實作走 feature 分支、PR 引用 Issue 收斂**
+- 後端:`application/PublishService.java`(GitFlow 編排)、`adapter/out/github/GitHubAdapter.java`
+  (REST v3:issues/refs/contents/pulls;空 repo 自動初始化);`GitHostPort` 為 port,
+  GitLab 之後以另一 adapter 依 URL host 分流
+- 驗收:`features/git_publish.feature`(3 場景,fake Git host 決定性執行)
+- 實測:購物車產出 → 6 張場景 Issue + `feature/sdlc-*` 分支 57 檔 + PR(Closes #1~#6)
+
 ---
 
 ## 3. 快速開始

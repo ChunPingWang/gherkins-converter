@@ -36,13 +36,20 @@ public class SettingsController {
     }
 
     public record SettingsView(String systemPrompt, String baseUrl, String apiKeyMasked,
-                               String defaultModelId, MuralView mural) {
+                               String defaultModelId, MuralView mural, GitView git) {
     }
 
     public record MuralUpdate(Boolean enabled, String clientId, String clientSecret) {
     }
 
-    public record SettingsUpdate(String systemPrompt, String baseUrl, String apiKey, MuralUpdate mural) {
+    public record GitView(String repoUrl, String tokenMasked) {
+    }
+
+    public record GitUpdate(String repoUrl, String token) {
+    }
+
+    public record SettingsUpdate(String systemPrompt, String baseUrl, String apiKey,
+                                 MuralUpdate mural, GitUpdate git) {
     }
 
     public record MuralTestResult(boolean ok, int toolCount, String error) {
@@ -55,7 +62,8 @@ public class SettingsController {
                 settings.systemPrompt(), settings.baseUrl(),
                 settings.apiKeyMasked(), settings.defaultModelId(),
                 new MuralView(settings.muralEnabled(), settings.muralClientId(),
-                        settings.muralClientSecretMasked(), st.connected(), st.toolCount(), st.error()));
+                        settings.muralClientSecretMasked(), st.connected(), st.toolCount(), st.error()),
+                new GitView(settings.gitRepoUrl(), settings.gitTokenMasked()));
     }
 
     @PutMapping
@@ -63,6 +71,9 @@ public class SettingsController {
         settings.update(req.systemPrompt(), req.baseUrl(), req.apiKey());
         if (req.mural() != null) {
             settings.updateMural(req.mural().enabled(), req.mural().clientId(), req.mural().clientSecret());
+        }
+        if (req.git() != null) {
+            settings.updateGit(req.git().repoUrl(), req.git().token());
         }
         return get();
     }

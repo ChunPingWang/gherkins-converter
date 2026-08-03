@@ -25,6 +25,8 @@ public class RuntimeSettingsService {
     private volatile boolean muralEnabled;
     private volatile String muralClientId;
     private volatile String muralClientSecret;
+    private volatile String gitRepoUrl;
+    private volatile String gitToken;
 
     @org.springframework.beans.factory.annotation.Autowired
     public RuntimeSettingsService(ChatProperties chatProps,
@@ -32,7 +34,9 @@ public class RuntimeSettingsService {
                                   @Value("${spring.ai.openai.api-key}") String apiKey,
                                   @Value("${llmagent.mcp.mural.enabled:false}") boolean muralEnabled,
                                   @Value("${llmagent.mcp.mural.client-id:}") String muralClientId,
-                                  @Value("${llmagent.mcp.mural.client-secret:}") String muralClientSecret) {
+                                  @Value("${llmagent.mcp.mural.client-secret:}") String muralClientSecret,
+                                  @Value("${llmagent.git.repo-url:}") String gitRepoUrl,
+                                  @Value("${llmagent.git.token:}") String gitToken) {
         this.systemPrompt = chatProps.defaultSystemPrompt();
         this.defaultModelId = chatProps.defaultModelId();
         this.baseUrl = baseUrl;
@@ -40,11 +44,35 @@ public class RuntimeSettingsService {
         this.muralEnabled = muralEnabled;
         this.muralClientId = muralClientId;
         this.muralClientSecret = muralClientSecret;
+        this.gitRepoUrl = gitRepoUrl;
+        this.gitToken = gitToken;
     }
 
-    /** 測試用簡便建構子(Mural MCP 停用)。 */
+    /** 測試用簡便建構子(Mural MCP 停用、Git 未設定)。 */
     public RuntimeSettingsService(ChatProperties chatProps, String baseUrl, String apiKey) {
-        this(chatProps, baseUrl, apiKey, false, "", "");
+        this(chatProps, baseUrl, apiKey, false, "", "", "", "");
+    }
+
+    public String gitRepoUrl() {
+        return gitRepoUrl;
+    }
+
+    public String gitToken() {
+        return gitToken;
+    }
+
+    public String gitTokenMasked() {
+        return mask(gitToken);
+    }
+
+    /** 更新 Git 整合參數;blank 表示維持不變(僅存記憶體,金鑰不落地)。 */
+    public synchronized void updateGit(String repoUrl, String token) {
+        if (repoUrl != null && !repoUrl.isBlank()) {
+            this.gitRepoUrl = repoUrl.strip();
+        }
+        if (token != null && !token.isBlank()) {
+            this.gitToken = token.strip();
+        }
     }
 
     public long version() {

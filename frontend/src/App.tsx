@@ -6,6 +6,7 @@ import {
   fetchModels,
   orchestrate,
   postMessage,
+  publishConversation,
   routeAgent,
   streamMessage,
   uploadFile,
@@ -155,6 +156,35 @@ export function App() {
     () => (lastAssistant && !lastAssistant.streaming ? extractBrdFill(lastAssistant.content) : null),
     [lastAssistant],
   );
+
+  // 發布產出至 Git(GitFlow:場景開 Issue → 分支提交 → PR 連結 Issues)
+  const [publishing, setPublishing] = useState(false);
+  async function publishToGit() {
+    if (!convId.current) return;
+    setPublishing(true);
+    const pushLog = (line: LogLine) => setLogs((prev) => [...prev, line]);
+    try {
+      const r = await publishConversation(convId.current);
+      pushLog({
+        level: "INFO", source: "🚀 發布",
+        msg: `已開 ${r.issues.length} 張 Issue、提交 ${r.fileCount} 個檔案至 ${r.branch},PR:${r.prUrl}`,
+        ts: new Date().toISOString(),
+      });
+      r.issues.forEach((i) => pushLog({
+        level: "INFO", source: "🚀 發布", msg: `Issue #${i.number}:${i.url}`, ts: new Date().toISOString(),
+      }));
+      setTab("logs");
+    } catch (err) {
+      pushLog({
+        level: "ERROR", source: "🚀 發布",
+        msg: `發布失敗:${err instanceof Error ? err.message : String(err)}(請確認 ⚙ 設定的 Git Repo/Token)`,
+        ts: new Date().toISOString(),
+      });
+      setTab("logs");
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   // 一鍵步驟二:上則回覆含 Gherkin 時,「📄 產生 BRD」自動改用 BRD Agent 送出
   const brdProfile = useMemo(
@@ -517,6 +547,14 @@ export function App() {
               disabled={sending || !brdProfile || !gherkinBlocks?.length}
             >
               📄 產生 BRD
+            </button>
+            <button
+              className="attach-btn"
+              title="依 GitFlow 發布產出:Gherkin 場景開 Issue → feature 分支提交程式碼 → PR 連結 Issues(需先於 ⚙ 設定填 Git Repo/Token)"
+              onClick={publishToGit}
+              disabled={sending || publishing || javaBlockCount === 0 || !convId.current}
+            >
+              {publishing ? "發布中…" : "🚀 發布 Git"}
             </button>
             <button onClick={() => send()} disabled={sending || !input.trim()}>
               {sending ? "串流中…" : "送出"}

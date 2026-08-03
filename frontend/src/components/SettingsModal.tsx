@@ -15,6 +15,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [muralClientId, setMuralClientId] = useState("");
   const [muralSecret, setMuralSecret] = useState("");
   const [muralTest, setMuralTest] = useState<string | null>(null);
+  const [gitRepoUrl, setGitRepoUrl] = useState("");
+  const [gitToken, setGitToken] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
@@ -25,6 +27,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         setBaseUrl(s.baseUrl);
         setMuralEnabled(s.mural.enabled);
         setMuralClientId(s.mural.clientId);
+        setGitRepoUrl(s.git.repoUrl);
       })
       .catch(() => setStatus("error"));
   }, []);
@@ -41,6 +44,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           ...(muralClientId.trim() ? { clientId: muralClientId.trim() } : {}),
           ...(muralSecret.trim() ? { clientSecret: muralSecret.trim() } : {}),
         },
+        git: {
+          ...(gitRepoUrl.trim() ? { repoUrl: gitRepoUrl.trim() } : {}),
+          ...(gitToken.trim() ? { token: gitToken.trim() } : {}),
+        },
       });
       setSettings(s);
       setSystemPrompt(s.systemPrompt);
@@ -49,6 +56,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       setMuralEnabled(s.mural.enabled);
       setMuralClientId(s.mural.clientId);
       setMuralSecret("");
+      setGitRepoUrl(s.git.repoUrl);
+      setGitToken("");
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 2000);
     } catch {
@@ -174,6 +183,38 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </button>
                 {muralTest && <p className="hint">{muralTest}</p>}
               </div>
+            </section>
+
+            <section>
+              <h3>Git 整合(GitHub / GitLab)</h3>
+              <p className="hint">
+                發布產出時依 GitFlow:Gherkin 場景開 Issue → feature 分支提交程式碼 → PR 以
+                Closes 連結 Issues。目前支援 GitHub(github.com);GitLab 規劃中。
+                Token 僅存伺服器記憶體,重啟還原為環境變數。
+              </p>
+              <label className="field">
+                <span>Repo URL</span>
+                <input
+                  type="url"
+                  value={gitRepoUrl}
+                  onChange={(e) => setGitRepoUrl(e.target.value)}
+                  placeholder="https://github.com/<owner>/<repo>"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="field">
+                <span>
+                  Access Token(目前:{settings.git.tokenMasked || "未設定"};留空 = 不變更;
+                  需 repo 與 issues 權限)
+                </span>
+                <input
+                  type="password"
+                  value={gitToken}
+                  onChange={(e) => setGitToken(e.target.value)}
+                  placeholder="輸入 Personal Access Token"
+                  autoComplete="off"
+                />
+              </label>
             </section>
           </>
         )}
