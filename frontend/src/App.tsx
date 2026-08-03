@@ -73,13 +73,8 @@ export function App() {
   const [tab, setTab] = useState<Tab>("artifacts");
   const [modal, setModal] = useState<null | "word" | "code" | "settings" | "profiles" | "providers">(null);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [profileId, setProfileId] = useState<string>(() => {
-    // 預設「🤖 自動」:由路由器判斷 Agent,使用者無須手動切換。
-    // 新鍵 llmagent.agent 以 "__default__" 明確編碼「全域預設」;舊鍵(空字串歧義)棄用。
-    const stored = localStorage.getItem("llmagent.agent");
-    if (stored === null) return AUTO_PROFILE;
-    return stored === "__default__" ? "" : stored;
-  });
+  // Agent 一律自動路由(層次一),不提供手動切換;特定流程(如產生 BRD)以 profileOverride 指定
+  const profileId = AUTO_PROFILE;
   const [uploadedDoc, setUploadedDoc] = useState<{ url: string; name: string } | null>(null);
   const [attachments, setAttachments] = useState<{ fileId: string; filename: string }[]>([]);
   const [wordTemplate, setWordTemplate] = useState<{ fileId: string; filename: string } | null>(null);
@@ -90,13 +85,10 @@ export function App() {
   const convKey = useRef<string>(""); // model+profile;變更時開新對話
   const esRef = useRef<EventSource | null>(null);
 
-  // Agent Profile 清單(WP2-T6);還原的選擇若已不存在(如 DB 重建)則退回預設
+  // Agent Profile 清單(WP2-T6):供路由後名稱顯示與 BRD 一鍵流程查找
   useEffect(() => {
     fetchAgentProfiles()
-      .then((list) => {
-        setProfiles(list);
-        setProfileId((cur) => (cur && !list.some((p) => p.id === cur) ? "" : cur));
-      })
+      .then(setProfiles)
       .catch(() => {});
   }, [modal]); // 管理視窗關閉後重新載入
 
@@ -104,9 +96,6 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("llmagent.model", model);
   }, [model]);
-  useEffect(() => {
-    localStorage.setItem("llmagent.agent", profileId === "" ? "__default__" : profileId);
-  }, [profileId]);
 
   // 開啟時動態拉取 ICA 模型清單(WP2-T2);失敗則沿用後備清單。
   useEffect(() => {
@@ -160,14 +149,12 @@ export function App() {
     send(text, brdProfile.id);
   }
 
-  // Agent 建議(AI 建議 + 使用者確認):偵測輸入意圖,建議條按「改用」才切換
-  const [dismissedSuggestion, setDismissedSuggestion] = useState<string | null>(null);
-  // 送出時攔截確認:訊息意圖與目前 Agent 不符時,送出前必須二選一
+  // 路由信心不足時的確認視窗:採用建議 Agent 或以全域預設送出
   const [pendingConfirm, setPendingConfirm] = useState<
     { text: string; suggestion: AgentSuggestion } | null
   >(null);
 
-  /** 攔截確認後實際送出:useSuggested 決定用建議 Agent 或維持目前 Agent。 */
+  /** 確認後實際送出:useSuggested 決定用建議 Agent 或全域預設。 */
   function confirmSend(useSuggested: boolean) {
     const pc = pendingConfirm;
     if (!pc) return;
@@ -176,15 +163,9 @@ export function App() {
     if (useSuggested) {
       send(pc.text, pc.suggestion.profile.id);
     } else {
-      setDismissedSuggestion(pc.suggestion.profile.id); // 明確拒絕過,本輪不再攔
       send(pc.text, undefined, true);
     }
   }
-  const agentSuggestion = useMemo(() => {
-    if (profileId === AUTO_PROFILE) return null; // 自動模式:由後端路由,不出建議條
-    const s = suggestAgent(input, attachments.map((a) => a.filename), profiles, profileId);
-    return s && s.profile.id !== dismissedSuggestion ? s : null;
-  }, [input, attachments, profiles, profileId, dismissedSuggestion]);
   const wordTitle =
     brdFill?.values?.DOC_TITLE ?? brdFill?.values?.PROJECT_NAME ??
     (uploadedDoc?.name ?? docTitle(lastAssistant?.content ?? ""));
@@ -201,14 +182,6 @@ export function App() {
     const text = (textArg ?? input).trim();
     if (!text || sending) return;
     const isAuto = (profileOverride ?? profileId) === AUTO_PROFILE;
-    // 送出時攔截(手動模式):訊息意圖與目前 Agent 不符 → 跳確認視窗,明確二選一後才送
-    if (profileOverride === undefined && !skipIntercept && !isAuto) {
-      const s = suggestAgent(text, attachments.map((a) => a.filename), profiles, profileId);
-      if (s && s.profile.id !== dismissedSuggestion) {
-        setPendingConfirm({ text, suggestion: s });
-        return;
-      }
-    }
     // 自動路由(層次一):送出前先取得決策物件;低信心或無法判斷退回人工確認(沿用攔截視窗)
     let effProfile = profileOverride ?? profileId;
     let routeLog: LogLine | null = null;
@@ -269,9 +242,6 @@ export function App() {
     }
     setSending(true);
     if (textArg === undefined) setInput("");
-    if (profileOverride !== undefined && profileId !== AUTO_PROFILE) {
-      setProfileId(profileOverride); // 同步下拉顯示(自動模式維持「自動」)
-    }
 
     try {
       const vars = { project_name: "llm-webapp", gherkin_locale: "zh-TW" };
@@ -313,7 +283,6 @@ export function App() {
             attached.length > 0 ? attached.map((a) => a.fileId) : undefined,
           );
       setAttachments([]);
-      setDismissedSuggestion(null); // 新一輪訊息允許重新建議
 
       esRef.current = streamMessage(messageId, {
         onThinking: (d) => patch(assistantId, (m) => ({ ...m, thinking: m.thinking + d })),
@@ -364,7 +333,6 @@ export function App() {
     setUploadedDoc(null);
     setAttachments([]);
     setWordTemplate(null);
-    setProfileId(""); // 重新開始 = 乾淨狀態:Agent 重置回全域預設,避免殘留上次人格
     setSending(false);
     if (id) {
       try {
@@ -387,16 +355,11 @@ export function App() {
       <header className="topbar">
         <h1>LLM Agent 平台</h1>
         <div className="model-picker">
-          <label>Agent</label>
-          <select value={profileId} onChange={(e) => setProfileId(e.target.value)} disabled={sending}>
-            <option value="">（全域預設）</option>
-            <option value={AUTO_PROFILE}>🤖 自動（依訊息路由）</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} v{p.version}</option>
-            ))}
-          </select>
-          <button className="settings-btn" onClick={() => setModal("profiles")} title="Agent Profile 管理">
-            管理
+          <span className="auto-agent-badge" title="Agent 由路由器依訊息自動選擇(全流程需求自動接力),無須手動切換">
+            🤖 Agent 自動路由
+          </span>
+          <button className="settings-btn" onClick={() => setModal("profiles")} title="Agent Prompt 管理與版本控制">
+            Agent 管理
           </button>
           <label>模型</label>
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={sending}>
@@ -441,23 +404,6 @@ export function App() {
             ))}
           </div>
           <div className="composer">
-            {agentSuggestion && !sending && (
-              <div className="agent-suggest">
-                💡 這看起來是{agentSuggestion.reason},適合改用「{agentSuggestion.profile.name}」
-                <button
-                  className="expand-btn"
-                  onClick={() => setProfileId(agentSuggestion.profile.id)}
-                >
-                  改用
-                </button>
-                <button
-                  className="expand-btn"
-                  onClick={() => setDismissedSuggestion(agentSuggestion.profile.id)}
-                >
-                  忽略
-                </button>
-              </div>
-            )}
             {attachments.length > 0 && (
               <div className="attachment-chips">
                 {attachments.map((a) => (

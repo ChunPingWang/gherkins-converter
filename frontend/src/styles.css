@@ -361,6 +361,15 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
 .checkbox-field { flex-direction: row; align-items: center; gap: 0.5rem; }
+.auto-agent-badge {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  white-space: nowrap;
+}
 .checkbox-field input { width: auto; accent-color: var(--accent, #d33); }
 .checkbox-field span { color: var(--text); font-size: 0.9rem; }
 .field span { font-size: 0.83rem; color: var(--muted); }
