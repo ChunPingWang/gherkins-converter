@@ -15,7 +15,7 @@ class ArtifactExtractorTest {
         String md = """
                 說明文字
                 ```gherkin
-                功能: 提款
+                功能: 下單
                 ```
                 中間
                 ```java
@@ -29,7 +29,7 @@ class ArtifactExtractorTest {
         assertThat(e.degraded()).isFalse();
         assertThat(e.pieces()).hasSize(2);
         assertThat(e.pieces().get(0).type()).isEqualTo(ArtifactType.GHERKIN);
-        assertThat(e.pieces().get(0).content()).isEqualTo("功能: 提款");
+        assertThat(e.pieces().get(0).content()).isEqualTo("功能: 下單");
         assertThat(e.pieces().get(1).type()).isEqualTo(ArtifactType.JAVA);
     }
 

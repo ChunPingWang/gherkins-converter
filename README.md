@@ -9,17 +9,19 @@
 
 ---
 
-## 1. 實際場景:富邦銀行 ATM 提款(三步驟 SDLC)
+## 1. 使用場景:三步驟 SDLC(任何業務需求皆適用)
 
-同一個對話中依序送出三個 prompt,Agent 逐步完成「規格 → 需求文件 → 程式碼」:
+同一個對話中依序送出三個 prompt(或以 🤖 自動路由/全流程一句話完成),
+Agent 逐步完成「規格 → 需求文件 → 程式碼」。需求來源可以是文字敘述、附件
+(.docx / 文字檔)或 **Mural 線上白板**(Event Storming 便利貼):
 
 | 步驟 | Prompt 要求 | 產出 |
 |------|------------|------|
-| Step 1 | 將 ATM 提款情境轉為 Gherkin,加入**正反向條件** | zh-TW `.feature`(正向提款/密碼錯誤/鎖卡/餘額不足/場景大綱) |
-| Step 2 | 根據 Step 1 撰寫**業務需求文件**(Word 格式) | 結構化 BRD → 後端轉為真正的 `.docx`,前端內嵌預覽 |
-| Step 3 | 開發 **Java 21 + Cucumber** test/production code,符合 **DDD 與 SOLID**,涵蓋率 ≥ 80% | 可建置 Maven 專案(實測 27+ 測試全過、JaCoCo ≈100%) |
+| Step 1 | 將業務情境轉為 Gherkin,加入**正反向條件** | zh-TW `.feature`(正向/例外/邊界情境、場景大綱) |
+| Step 2 | 根據 Step 1 撰寫**業務需求文件**(Word 格式) | 結構化 BRD → 後端於原模板套版為 `.docx`,前端內嵌預覽 |
+| Step 3 | 開發 **Java 21 + Cucumber** test/production code,符合 **DDD 與 SOLID**,涵蓋率 ≥ 80% | 可建置 Maven 專案(歷史示例實測 27+ 測試全過、JaCoCo ≈100%) |
 
-完整產出物與 **Playwright 全程錄影(MP4)** 在 [`deliverables/atm-withdrawal/`](deliverables/atm-withdrawal/)。
+早期示例場景的完整產出物與 **Playwright 全程錄影** 保留在 [`deliverables/`](deliverables/) 供參考。
 
 ### 畫面走查
 
@@ -131,7 +133,7 @@ frontend WordPreview ◀── docx-preview 內嵌渲染 ◀────┘(同�
 
 程式碼產出約定「每檔一個 code fence、首行註解標路徑」,因此:
 - 前端 `frontend/src/lib/artifacts.ts` 抽取 ```gherkin / ```java 區塊供複製/下載;
-- 產出物可被腳本自動還原成完整專案(見 `deliverables/atm-withdrawal/harness/materialize.mjs`),
+- 產出物可被腳本自動還原成完整專案(示例工具見 `deliverables/` 內的 harness),
   這正是 Step 3 的 Maven 專案能直接 `mvn test` 的原因。
 
 ### 原理 7:執行期設定(Runtime Settings)
@@ -276,7 +278,7 @@ cd frontend && npm run build      # tsc 型別檢查 + vite 打包
 
 ## 4. 建議學習路徑(讀 code 的順序)
 
-1. **看場景**:播放 `deliverables/atm-withdrawal/recording/atm-webapp-demo.mp4`,對照上方截圖
+1. **看場景**:對照上方「畫面走查」截圖,或參考 `deliverables/` 內的歷史示例產出
 2. **域模型**:`domain/chat/Conversation.java` → `domain/sse/SseEventType.java` → `domain/thinking/ThinkingParser.java`
 3. **串流主流程**:`application/ChatService.java`(五型事件如何長出來)→ `ChatController.java`(SSE 序列化)
 4. **Provider**:`adapter/out/provider/SpringAiChatModelAdapter.java`(ICA = OpenAI-compatible;
@@ -297,7 +299,7 @@ gherkins-converter/
 ├── specs/openapi.yaml      # API 契約(先改 spec 再實作)
 ├── docker/compose.yaml     # postgres + minio + langfuse
 ├── docs/                   # 規劃書、ADR-001~007、TASKS、截圖
-└── deliverables/atm-withdrawal/   # ATM 場景完整產出物 + 錄影 + 產製工具
+└── deliverables/                  # 歷史示例場景產出物 + 產製工具(僅供參考)
 ```
 
 ## 6. 開發進度

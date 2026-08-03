@@ -40,8 +40,8 @@ class AgentProfileServiceTest {
         AgentProfile p = service.create("t", null,
                 "專案 {project_name},Gherkin 使用 {gherkin_locale}。", "m", 1.0, List.of());
         String rendered = service.renderPrompt(p.id(),
-                Map.of("project_name", "ATM", "gherkin_locale", "zh-TW"));
-        assertThat(rendered).isEqualTo("專案 ATM,Gherkin 使用 zh-TW。");
+                Map.of("project_name", "訂購平台", "gherkin_locale", "zh-TW"));
+        assertThat(rendered).isEqualTo("專案 訂購平台,Gherkin 使用 zh-TW。");
     }
 
     @Test
